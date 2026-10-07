@@ -551,8 +551,10 @@ function getCampaignFeedback(campaignId: string, overallScore: number = 80) {
     const saved = localStorage.getItem(key);
     if (saved) {
       try {
-        userFeedbacks = JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        userFeedbacks = Array.isArray(parsed) ? parsed : [];
       } catch (e) {
+        userFeedbacks = [];
         console.error("Error loading feedback from storage:", e);
       }
     }

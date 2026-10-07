@@ -12,8 +12,10 @@ function getPdfCampaignFeedback(
     const saved = localStorage.getItem(key);
     if (saved) {
       try {
-        userFeedbacks = JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        userFeedbacks = Array.isArray(parsed) ? parsed : [];
       } catch (e) {
+        userFeedbacks = [];
         console.error("Error loading feedback from storage:", e);
       }
     }
@@ -122,7 +124,8 @@ function getPdfCampaignFeedback(
     });
   }
 
-  return [...userFeedbacks, ...preseeded];
+  const safeUserFeedbacks = Array.isArray(userFeedbacks) ? userFeedbacks : [];
+  return [...safeUserFeedbacks, ...preseeded];
 }
 
 function hasArabic(text: string): boolean {
