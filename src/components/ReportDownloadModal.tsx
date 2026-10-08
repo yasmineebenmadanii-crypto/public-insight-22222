@@ -41,7 +41,7 @@ export function ReportDownloadModal({
   containerHtml = "",
   score,
   mode = "post",
-  totalPages = 4,
+  totalPages = 2,
 }: ReportDownloadModalProps) {
   const { lang } = useI18n();
   const isArabic = lang === "ar";
