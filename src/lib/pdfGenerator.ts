@@ -1,4 +1,5 @@
 import { jsPDF } from "jspdf";
+import html2canvas from "html2canvas";
 import { APP_LOGO_BASE64 } from "@/lib/logoBase64";
 
 function getPdfCampaignFeedback(
@@ -53,53 +54,47 @@ function getPdfCampaignFeedback(
   const neutralOpinionsEn = [
     "Good campaign overall, though certain technical details could be clarified further.",
     "Solid creative direction, but background music was slightly distracting.",
-    "Acceptable delivery, but visual imagery could have higher resolution.",
+    "Acceptable production, but posters and still assets could have been sharper.",
   ];
 
   const negativeOpinionsAr = [
-    "الرسالة غير واضحة وهناك غموض في الهدف الرئيسي من العرض الترويجي.",
-    "لم تعجبني النبرة المستخدمة، أرى أنها غير ملائمة لعامة الناس.",
+    "الرسالة غير واضحة تماماً واستغرقت وقتاً طويلاً للوصول إلى الهدف المطلوب.",
+    "المحتوى مكرر وشبيه جداً بحملات سابقة ولا يقدم قيمة جديدة للمستهلك.",
+    "توقيت النشر كان غير موفق مقارنة بالأحداث اليومية للجمهور.",
   ];
 
   const negativeOpinionsEn = [
-    "The core message could be more straightforward and focused on real benefits.",
-    "The promotional tone felt a bit generic and could be more authentic.",
+    "The message felt confusing and took too long to deliver its core value proposition.",
+    "Repetitive creative that feels almost identical to last season's campaigns.",
+    "Timing and distribution frequency were poorly scheduled.",
   ];
 
   const posList = isArabic ? positiveOpinionsAr : positiveOpinionsEn;
   const neuList = isArabic ? neutralOpinionsAr : neutralOpinionsEn;
   const negList = isArabic ? negativeOpinionsAr : negativeOpinionsEn;
 
+  const ageGroups = ["under-18", "18-24", "25-34", "35-44", "45-54", "55-plus"];
+
   for (let i = 0; i < count; i++) {
-    const seed = (campaignId.charCodeAt(0) || 0) + i + 17;
-
-    let age = "25-34";
-    if (seed % 6 === 0) age = "18-24";
-    else if (seed % 6 === 1) age = "25-34";
-    else if (seed % 6 === 2) age = "35-44";
-    else if (seed % 6 === 3) age = "18-24";
-    else if (seed % 6 === 4) age = "45-54";
-    else age = "under-18";
-
-    const gender = seed % 2 === 0 ? "female" : "male";
+    const seed = (i * 17 + campaignId.length * 3 + overallScore) % 100;
+    const age = ageGroups[seed % ageGroups.length];
+    const gender = seed % 2 === 0 ? "male" : "female";
 
     let q1 = "yes";
-    if (isHigh) {
-      q1 = seed % 10 < 8 ? "yes" : seed % 10 === 8 ? "partially" : "no";
-    } else if (isAvg) {
-      q1 = seed % 10 < 6 ? "yes" : seed % 10 < 9 ? "partially" : "no";
-    } else {
-      q1 = seed % 10 < 4 ? "yes" : seed % 10 < 8 ? "partially" : "no";
-    }
+    if (seed % 7 === 0) q1 = "no";
+    else if (seed % 4 === 0) q1 = "partially";
 
-    let q2 = "yes";
-    if (isHigh) {
-      q2 = seed % 5 < 4 ? "yes" : "no";
-    } else if (isAvg) {
-      q2 = seed % 5 < 3 ? "yes" : "no";
-    } else {
-      q2 = seed % 5 < 2 ? "yes" : "no";
-    }
+    const q2 = isHigh
+      ? seed % 8 === 0
+        ? "no"
+        : "yes"
+      : isAvg
+        ? seed % 4 === 0
+          ? "no"
+          : "yes"
+        : seed % 2 === 0
+          ? "no"
+          : "yes";
 
     let opinion = "";
     if (seed % 3 !== 0) {
@@ -124,326 +119,20 @@ function getPdfCampaignFeedback(
     });
   }
 
-  const safeUserFeedbacks = Array.isArray(userFeedbacks) ? userFeedbacks : [];
-  return [...safeUserFeedbacks, ...preseeded];
+  const safeFeedbacks = Array.isArray(userFeedbacks) ? userFeedbacks : [];
+  return [...safeFeedbacks, ...preseeded];
 }
 
 function hasArabic(text: string): boolean {
   return /[\u0600-\u06FF]/.test(text || "");
 }
 
-export interface PDFExportResult {
-  success: boolean;
-  blobUrl: string;
-  dataUri: string;
-  fileName: string;
-  pdfBlob: Blob;
-  containerHtml: string;
-  totalPages: number;
-}
-
-// Helper to draw rounded rectangle on 2D context
-function roundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  radius: number,
-  fill = true,
-  stroke = true,
-) {
-  ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.lineTo(x + w - radius, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
-  ctx.lineTo(x + w, y + h - radius);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
-  ctx.lineTo(x + radius, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
-  ctx.lineTo(x, y + radius);
-  ctx.quadraticCurveTo(x, y, x + radius, y);
-  ctx.closePath();
-  if (fill) ctx.fill();
-  if (stroke) ctx.stroke();
-}
-
-// Helper to wrap text cleanly
-function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
-  if (!text) return [];
-  const words = text.split(/\s+/);
-  const lines: string[] = [];
-  let currentLine = "";
-
-  for (let i = 0; i < words.length; i++) {
-    const testLine = currentLine ? `${currentLine} ${words[i]}` : words[i];
-    const metrics = ctx.measureText(testLine);
-    if (metrics.width > maxWidth && currentLine) {
-      lines.push(currentLine);
-      currentLine = words[i];
-    } else {
-      currentLine = testLine;
-    }
-  }
-  if (currentLine) {
-    lines.push(currentLine);
-  }
-  return lines;
-}
-
-// Draw standard header banner across all pages
-function drawHeader(
-  ctx: CanvasRenderingContext2D,
-  titleEn: string,
-  titleAr: string,
-  badgeEn: string,
-  badgeAr: string,
-  dateStr: string,
-  isArabic: boolean,
-  logoImg: HTMLImageElement | null,
-) {
-  // Top Banner
-  ctx.fillStyle = "#091c52";
-  ctx.fillRect(0, 0, 1240, 120);
-
-  // Logo if loaded
-  if (logoImg && logoImg.complete && logoImg.naturalWidth > 0) {
-    ctx.drawImage(logoImg, 45, 20, 80, 80);
-  } else {
-    ctx.fillStyle = "#1e1e5a";
-    roundRect(ctx, 45, 20, 80, 80, 12, true, false);
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 28px sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("PI", 85, 70);
-  }
-
-  // Brand Name & Page Subtitle
-  ctx.textAlign = "left";
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "bold 32px 'Space Grotesk', 'Cairo', sans-serif";
-  ctx.fillText("Public Insight", 145, 58);
-
-  ctx.fillStyle = "#a5b4fc";
-  ctx.font = "600 16px 'Space Grotesk', 'Cairo', sans-serif";
-  ctx.fillText(isArabic ? titleAr : titleEn, 145, 90);
-
-  // Right Badge
-  ctx.textAlign = "right";
-  ctx.fillStyle = "#e0e7ff";
-  roundRect(ctx, 920, 25, 275, 36, 8, true, false);
-  ctx.fillStyle = "#1e1b4b";
-  ctx.font = "bold 13px sans-serif";
-  ctx.fillText(isArabic ? badgeAr : badgeEn, 1180, 48);
-
-  ctx.fillStyle = "#cbd5e1";
-  ctx.font = "600 13px monospace";
-  ctx.fillText(dateStr, 1180, 85);
-}
-
-// Draw standard footer across all pages
-function drawFooter(
-  ctx: CanvasRenderingContext2D,
-  pageNum: number,
-  totalPages: number,
-  isArabic: boolean,
-) {
-  ctx.strokeStyle = "#cbd5e1";
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(45, 1680);
-  ctx.lineTo(1195, 1680);
-  ctx.stroke();
-
-  ctx.textAlign = "left";
-  ctx.fillStyle = "#4338ca";
-  ctx.font = "bold 16px sans-serif";
-  ctx.fillText("●", 45, 1715);
-
-  ctx.fillStyle = "#475569";
-  ctx.font = "bold 13px 'DM Sans', 'Cairo', sans-serif";
-  ctx.fillText(
-    isArabic
-      ? "مركز تحليلات Public Insight • التقرير الفني المعتمد للحملة"
-      : "Public Insight Analytics Center • Official Intelligence Report",
-    65,
-    1714,
-  );
-
-  ctx.textAlign = "right";
-  ctx.fillStyle = "#0f172a";
-  ctx.font = "bold 14px monospace";
-  ctx.fillText(
-    isArabic ? `الصفحة ${pageNum} من ${totalPages}` : `Page ${pageNum} of ${totalPages}`,
-    1195,
-    1714,
-  );
-}
-
-export async function downloadPDFDirectly(
-  blob: Blob,
-  dataUri: string,
-  fileName: string,
-): Promise<boolean> {
-  // If the browser supports File System Access API (Chrome/Edge on PC), use it for native PC Save dialog
-  if (typeof window !== "undefined" && "showSaveFilePicker" in window) {
-    try {
-      const handle = await (window as any).showSaveFilePicker({
-        suggestedName: fileName,
-        types: [
-          {
-            description: "PDF Document (*.pdf)",
-            accept: { "application/pdf": [".pdf"] },
-          },
-        ],
-      });
-      const writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-      return true;
-    } catch (err: any) {
-      if (err.name === "AbortError") {
-        return true; // User intentionally dismissed file picker
-      }
-      console.warn("Native file picker failed, falling back to download link:", err);
-    }
-  }
-
-  // Fallback 1: Standard Blob URL anchor
-  try {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileName;
-    link.target = "_self";
-    link.style.display = "none";
-    document.body.appendChild(link);
-    link.click();
-    setTimeout(() => {
-      if (document.body.contains(link)) document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    }, 4000);
-    return true;
-  } catch (e) {
-    console.warn("Blob URL anchor failed:", e);
-  }
-
-  // Fallback 2: Data URI anchor
-  try {
-    const link2 = document.createElement("a");
-    link2.href = dataUri;
-    link2.download = fileName;
-    link2.target = "_self";
-    link2.style.display = "none";
-    document.body.appendChild(link2);
-    link2.click();
-    setTimeout(() => {
-      if (document.body.contains(link2)) document.body.removeChild(link2);
-    }, 4000);
-    return true;
-  } catch (e) {
-    console.warn("Data URI anchor failed:", e);
-  }
-
-  return false;
-}
-
-export function printReportDocument(
-  containerHtml: string,
-  title = "Public Insight Report",
-): boolean {
-  try {
-    const iframe = document.createElement("iframe");
-    iframe.id = "print-report-frame";
-    iframe.style.position = "fixed";
-    iframe.style.top = "-9999px";
-    iframe.style.left = "-9999px";
-    iframe.style.width = "794px";
-    iframe.style.height = "1123px";
-    iframe.style.border = "none";
-    document.body.appendChild(iframe);
-
-    const doc = iframe.contentDocument || iframe.contentWindow?.document;
-    if (!doc) return false;
-
-    doc.open();
-    doc.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>${title}</title>
-          <meta charset="utf-8" />
-          <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
-          <style>
-            @page {
-              size: A4 portrait;
-              margin: 0;
-            }
-            body {
-              margin: 0;
-              padding: 0;
-              background: #ffffff !important;
-              color: #0f172a !important;
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-            }
-            .pdf-page {
-              page-break-after: always;
-              break-after: page;
-              width: 100% !important;
-              box-sizing: border-box;
-            }
-            .pdf-page:last-child {
-              page-break-after: avoid;
-              break-after: avoid;
-            }
-          </style>
-        </head>
-        <body>
-          ${containerHtml}
-        </body>
-      </html>
-    `);
-    doc.close();
-
-    setTimeout(() => {
-      try {
-        iframe.contentWindow?.focus();
-        iframe.contentWindow?.print();
-      } catch (err) {
-        console.warn("Iframe print error:", err);
-      } finally {
-        setTimeout(() => {
-          if (document.body.contains(iframe)) {
-            document.body.removeChild(iframe);
-          }
-        }, 30000);
-      }
-    }, 450);
-    return true;
-  } catch (err) {
-    console.error("Failed to print report:", err);
-    return false;
-  }
-}
-
-// Loads image object asynchronously for fast canvas blitting
-function loadImg(src: string): Promise<HTMLImageElement | null> {
-  return new Promise((resolve) => {
-    if (!src) return resolve(null);
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = src;
-  });
-}
-
 export async function exportCampaignToPDF(
   record: any,
   lang: "ar" | "en",
-): Promise<PDFExportResult> {
+): Promise<{ success: boolean; blobUrl: string; fileName: string }> {
   const isArabic = lang === "ar";
+  const L = (en: string, ar: string) => (isArabic ? ar : en);
   const isPostCampaign = record.mode === "post";
   const totalPages = isPostCampaign ? 5 : 4;
 
@@ -451,7 +140,6 @@ export async function exportCampaignToPDF(
   const overallScore = record.score || 78;
   const dialectKey = record.campaignObj?.dialect || record.dialect || "standard";
   const campaignType = record.campaignObj?.type || "awareness";
-  const dateStr = record.date || new Date().toISOString().split("T")[0];
 
   const dialectNames: Record<string, string> = {
     standard: isArabic ? "العربية الفصحى" : "Modern Standard Arabic (Fusha)",
@@ -462,21 +150,7 @@ export async function exportCampaignToPDF(
     english: isArabic ? "اللغة الإنجليزية" : "English Language",
   };
 
-  const safeName = (record.name || "Campaign")
-    .trim()
-    .replace(/[/\\?%*:|"<>]/g, "_")
-    .replace(/\s+/g, "_");
-  const fileName = `PublicInsight_${safeName}_Report.pdf`;
-
-  // Preload logo
-  let logoImg: HTMLImageElement | null = null;
-  try {
-    logoImg = await loadImg(APP_LOGO_BASE64);
-  } catch {
-    // Ignore logo preload error
-  }
-
-  // Strategy Evaluation
+  // Safe localized texts for AI reports according to language
   const defaultEvaluation = isArabic
     ? "تظهر استراتيجية الحملة تموضعاً تنافسياً قوياً وقنوات إعلانية محددة بعناية تامة. تتناسب التصاميم والرسائل الإعلانية بشكل متناسق مع اهتمامات وتطلعات الشريحة المستهدفة، مما يضمن وصولاً مستقراً واستغلالاً مثالياً ومستداماً للميزانية المخصصة."
     : "Overall, the campaign strategy demonstrates robust positioning with carefully selected distribution channels. Ad creatives align seamlessly with audience expectations, ensuring steady reach and efficient budget utilization.";
@@ -489,59 +163,78 @@ export async function exportCampaignToPDF(
     ? `حققت الحملة درجة جاهزية متميزة (${overallScore}/100) مع استجابة إيجابية عالية عبر المنصات المستهدفة. يعكس توقيت النشر والمواءمة اللغوية فهماً عميقاً لسلوك المستهلك المحلي. نوصي بتعزيز ميزانيات مقاطع الفيديو التفاعلية للحفاظ على استدامة الزخم ومضاعفة معدلات التحويل.`
     : `The campaign registered a high readiness score (${overallScore}/100) with strong favorable reception across selected channels. Strategic timing and cultural dialect matching reflect an in-depth understanding of target consumer behavior. We recommend expanding short-form video allocation to sustain momentum and optimize conversions.`;
 
+  const defaultAudienceAnalysis = isArabic
+    ? "يتفاعل الجمهور المستهدف بشكل أساسي مع المحتوى القصصي المعبّر والمصاغ بلهجاتهم المحلية الدارجة. تبحث الفئات الشابة عن المصداقية والسرعة وتفضل مقاطع الفيديو القصيرة التي تطرح حلولاً مباشرة وجذابة."
+    : "The target demographic engages most vigorously with authentic, storytelling creative produced in their local dialect. Younger cohorts prioritize transparency, speed, and bite-sized visual formats delivering clear value propositions.";
+
   let diagnosisText = record.aiReport?.reportDescription || defaultDiagnosis;
-  if (!isArabic && hasArabic(diagnosisText)) diagnosisText = defaultDiagnosis;
-  else if (isArabic && !hasArabic(diagnosisText)) diagnosisText = defaultDiagnosis;
+  if (!isArabic && hasArabic(diagnosisText)) {
+    diagnosisText = defaultDiagnosis;
+  } else if (isArabic && !hasArabic(diagnosisText)) {
+    diagnosisText = defaultDiagnosis;
+  }
 
   let evaluationText = record.aiReport?.campaignEvaluation || defaultEvaluation;
-  if (!isArabic && hasArabic(evaluationText)) evaluationText = defaultEvaluation;
-  else if (isArabic && !hasArabic(evaluationText)) evaluationText = defaultEvaluation;
+  if (!isArabic && hasArabic(evaluationText)) {
+    evaluationText = defaultEvaluation;
+  } else if (isArabic && !hasArabic(evaluationText)) {
+    evaluationText = defaultEvaluation;
+  }
 
   let forecastText = record.aiReport?.performanceForecast || defaultForecast;
-  if (!isArabic && hasArabic(forecastText)) forecastText = defaultForecast;
-  else if (isArabic && !hasArabic(forecastText)) forecastText = defaultForecast;
+  if (!isArabic && hasArabic(forecastText)) {
+    forecastText = defaultForecast;
+  } else if (isArabic && !hasArabic(forecastText)) {
+    forecastText = defaultForecast;
+  }
 
-  // SWOT
+  // Localized SWOT
   const defaultStrengths = isArabic
     ? [
-        "مواءمة ثقافية متميزة جداً باستخدام اللهجة المحلية المعتمدة.",
-        "تركيز الميزانية بذكاء على منصات الفيديو البصري التفاعلية.",
-        "وضوح الرسالة التسويقية وجاذبية الشعار المعتمد.",
+        "المواءمة الثقافية الممتازة والاستخدام الذكي للهجة المحلية المستهدفة.",
+        "وضوح الرسالة الإعلانية الأساسية وسهولة تداولها بين فئات الجمهور.",
+        "التوزيع المتوازن للميزانية الإعلانية على قنوات بصرية ذات تفاعل مرتفع.",
       ]
     : [
-        "High cultural alignment with target localized dialect.",
-        "Efficient budget allocation focused on visual short-form video.",
-        "Compelling value proposition with clear call-to-action.",
+        "Exceptional cultural and dialect alignment tailored to the target audience.",
+        "High clarity of the primary promotional message and strong memorability.",
+        "Cost-effective budget allocation across high-performing visual channels.",
       ];
 
   const defaultWeaknesses = isArabic
     ? [
-        "الاعتماد المرتفع على الإعلانات المدفوعة دون زخم عضوي مستدام.",
-        "غياب إشارات واضحة لتتبع تفاعل المنافسين المباشرين.",
+        "مخاطر تراجع التفاعل التدريجي بعد أسبوعين في حال عدم تجديد المواد المرئية.",
+        "ارتفاع التنافسية الإعلانية في مواسم الذروة على المنصات الرقمية الرئيسية.",
+        "الحاجة إلى إضافة دعوة واضحة ومباشرة لاتخاذ إجراء (Call to Action) أكثر تحفيزاً.",
       ]
     : [
-        "Over-reliance on paid ad spend without organic momentum.",
-        "Limited differentiation against regional competitor offers.",
+        "Potential ad fatigue after initial weeks if creative variations are not rotated.",
+        "Heightened auction competition during seasonal marketing peaks.",
+        "Need for stronger, more urgent call-to-action (CTA) cues in secondary assets.",
       ];
 
   const defaultOpportunities = isArabic
     ? [
-        "التوسع نحو مقاطع ريلز وتيك توك مع صناع محتوى محليين موثوقين.",
-        "طرح عروض حصرية تفاعلية وأكواد خصم تحفز الشراء السريع.",
+        "التوسع الإعلاني في الولايات والمدن الداخلية ذات التنافسية الرقمية المنخفضة.",
+        "التعاون مع صناع محتوى محليين لتقديم مراجعات وتجارب عفوية وغير متكلفة.",
+        "إطلاق حملات إعادة استهداف (Retargeting) مخصصة للعملاء الذين تفاعلوا مسبقاً.",
       ]
     : [
-        "Expand into short-form UGC video partnerships.",
-        "Deploy exclusive promotional discount codes to accelerate conversion.",
+        "Geographic expansion into interior regional markets with lower ad auction costs.",
+        "Partnering with authentic regional creators for unscripted UGC reviews.",
+        "Deploying retargeting funnels for engaged users who interacted with preliminary ads.",
       ];
 
   const defaultThreats = isArabic
     ? [
-        "احتمال تشبع الجمهور المستهدف في حال عدم تجديد المواد الإعلانية.",
-        "ارتفاع كلفة النقرة في مواسم الذروة والمناسبات العامة.",
+        "التغير الدوري في خوارزميات المنصات الإعلانية وتأثيرها على كلفة الوصول العضوي.",
+        "ظهور عروض ترويجية منافسة بأسعار مخفضة في نفس النافذة الزمنية.",
+        "تشتت انتباه المستهلك الرقمي بين منصات متعددة في أوقات الذروة.",
       ]
     : [
-        "Audience creative fatigue if creatives are not refreshed bi-weekly.",
-        "Rising cost-per-click during peak commercial seasons.",
+        "Platform algorithmic changes occasionally impacting organic reach efficiency.",
+        "Competitor promotional saturation launched during identical campaign windows.",
+        "Fast-decaying consumer attention spans across competing visual networks.",
       ];
 
   const resolveList = (sourceList: any, defaultList: string[]) => {
@@ -575,19 +268,16 @@ export async function exportCampaignToPDF(
           title: "تكثيف إنتاج مقاطع الفيديو القصيرة (Short-Form Video)",
           detail:
             "ركز 70% من المواد الإعلانية على مقاطع ريلز وتيك توك بمدة 15 إلى 30 ثانية مع خطاف بصري في أول 3 ثوانٍ.",
-          category: "CONTENT",
         },
         {
           title: "التعاون مع المؤثرين وصناع المحتوى المحليين",
           detail:
             "استثمر جزءاً من الميزانية في شراكات مع صناع محتوى يتمتعون بمصداقية عالية لتقديم تجارب عفوية تحفز الثقة.",
-          category: "PARTNERSHIPS",
         },
         {
           title: "إطلاق حملة إعادة استهداف تفاعلية بعروض حصرية",
           detail:
             "أنشئ جمهوراً مخصصاً من الأشخاص الذين شاهدوا أكثر من 50% من إعلاناتك وقدم لهم عروضاً أو أكواد خصم حصرية.",
-          category: "CONVERSION",
         },
       ]
     : [
@@ -595,43 +285,36 @@ export async function exportCampaignToPDF(
           title: "Double Down on Short-Form Video Assets",
           detail:
             "Direct 70% of creative resources into 15-30s Reels & TikTok clips with strong 3-second visual hooks.",
-          category: "CONTENT",
         },
         {
           title: "Collaborate with Authentic Regional Creators",
           detail:
             "Engage trustworthy local creators for organic product demonstrations that build authentic social proof.",
-          category: "PARTNERSHIPS",
         },
         {
           title: "Deploy Dynamic Retargeting with Exclusive Incentives",
           detail:
-            "Build a custom segment of viewers who completed 50%+ of campaign videos, offering tailored incentives.",
-          category: "CONVERSION",
+            "Build a custom segment of viewers who completed 50%+ of campaign videos, offering them tailored conversion incentives.",
         },
       ];
 
   const rawRecs = record.aiReport?.recommendations || record.resultObj?.recommendations;
   let finalRecommendations = defaultRecs;
   if (Array.isArray(rawRecs) && rawRecs.length > 0) {
-    const formatted = rawRecs.slice(0, 3).map((r: any, idx: number) => ({
+    const formatted = rawRecs.slice(0, 3).map((r: any) => ({
       title: r.title || r.name || (isArabic ? "توصية هامة" : "Key Recommendation"),
       detail:
         r.detail ||
         r.description ||
         (isArabic ? "توصية استراتيجية معتمدة." : "Strategic guidance recommendation."),
-      category: r.category
-        ? r.category.toUpperCase()
-        : idx === 0
-          ? "CONTENT"
-          : idx === 1
-            ? "TARGETING"
-            : "STRATEGY",
     }));
-    finalRecommendations = formatted;
+    const matchLang = isArabic
+      ? formatted.every((f) => hasArabic(f.title))
+      : formatted.every((f) => !hasArabic(f.title));
+    if (matchLang) finalRecommendations = formatted;
   }
 
-  // Regional Algerian Wilayas Data
+  // Regional Wilayas Data
   const selectedWilayas = [
     { code: 16, nameAr: "الجزائر العاصمة", nameEn: "Algiers (Capital)", region: "coast" },
     { code: 31, nameAr: "وهران", nameEn: "Oran", region: "coast" },
@@ -649,30 +332,36 @@ export async function exportCampaignToPDF(
   const wilayaRows = selectedWilayas.map((wilaya) => {
     const seed = (wilaya.code * 7 + campaignName.length * 3 + overallScore * 5) % 100;
     let localScore = overallScore - 12 + (seed % 25);
-    if (isMaghrebiDialect) localScore += 10;
-    else if (dialectKey.toLowerCase() === "standard") localScore += 2;
-    else localScore -= 8;
-    localScore = Math.max(45, Math.min(98, localScore));
+    if (isMaghrebiDialect) {
+      localScore += 10;
+    } else if (dialectKey.toLowerCase() === "standard") {
+      localScore += 2;
+    } else {
+      localScore -= 8;
+    }
 
-    const statusLabel =
-      localScore >= 80
-        ? isArabic
-          ? "توافق ممتاز"
-          : "Optimal Fit"
-        : localScore >= 65
-          ? isArabic
-            ? "أداء قياسي"
-            : "Good Fit"
-          : isArabic
-            ? "يحتاج تحسين"
-            : "Refinement Needed";
+    const isMajorCity = [16, 31, 25, 19, 23].includes(wilaya.code);
+    if (isMajorCity) localScore += 6;
+    localScore = Math.max(35, Math.min(99, Math.round(localScore)));
 
-    const isMajorCity = wilaya.code === 16 || wilaya.code === 31 || wilaya.code === 25;
-    const populationFactor = isMajorCity
-      ? 3.4
-      : wilaya.code === 19 || wilaya.code === 23
-        ? 2.1
-        : 1.0;
+    let statusLabel = L("Optimal", "ممتاز");
+    let statusColor = "#059669";
+    let statusBg = "#ecfdf5";
+    let statusBorder = "#a7f3d0";
+    if (localScore < 70) {
+      statusLabel = L("Moderate", "متوسط");
+      statusColor = "#d97706";
+      statusBg = "#fffbeb";
+      statusBorder = "#fde68a";
+    }
+    if (localScore < 50) {
+      statusLabel = L("Weak", "ضعيف");
+      statusColor = "#dc2626";
+      statusBg = "#fef2f2";
+      statusBorder = "#fecdd3";
+    }
+
+    const populationFactor = isMajorCity ? 4.8 : wilaya.region === "coast" ? 3.0 : 1.8;
     const views = Math.max(1200, Math.round((overallScore * 280 + seed * 90) * populationFactor));
     const engagementRate = Math.round((2.5 + localScore / 16) * 10) / 10;
 
@@ -683,907 +372,909 @@ export async function exportCampaignToPDF(
 
     return {
       name: isArabic ? wilaya.nameAr : wilaya.nameEn,
-      code: wilaya.code,
       score: localScore,
       statusLabel,
+      statusColor,
+      statusBg,
+      statusBorder,
       views,
       engagementRate,
       bestPlatform,
     };
   });
 
+  // Sentiment & Metrics
+  const pSentiment = record.sentiment?.positive ?? 82;
+  const nSentiment = record.sentiment?.neutral ?? 14;
+  const ngSentiment = record.sentiment?.negative ?? 4;
+
+  const viewsCount = record.metrics?.views ?? 28500;
+  const likesCount = record.metrics?.likes ?? 1840;
+  const commentsCount = record.metrics?.comments ?? 340;
+  const sharesCount = record.metrics?.shares ?? 210;
+  const clicksCount = record.metrics?.clicks ?? Math.round(viewsCount * 0.082);
+
   const durationText = record.campaignObj?.durationValue
-    ? `${record.campaignObj.durationValue} ${record.campaignObj.durationUnit === "weeks" ? (isArabic ? "أسابيع" : "Weeks") : isArabic ? "أيام" : "Days"}`
-    : isArabic
-      ? "٣٠ يوماً"
-      : "30 Days";
+    ? `${record.campaignObj.durationValue} ${L(record.campaignObj.durationUnit || "days", record.campaignObj.durationUnit === "weeks" ? "أسابيع" : "أيام")}`
+    : L("30 Days", "٣٠ يوماً");
+
+  const sScore = Math.max(50, Math.min(96, overallScore + 4));
+  const wScore = Math.max(10, Math.min(45, Math.round((100 - overallScore) * 0.75 + 10)));
+  const oScore = Math.max(55, Math.min(95, Math.round(overallScore * 0.92 + 5)));
+  const tScore = Math.max(12, Math.min(48, Math.round((100 - overallScore) * 0.85)));
 
   const audienceAge = record.campaignObj?.age || "18-45";
   const audienceGender =
     record.campaignObj?.gender === "male"
-      ? isArabic
-        ? "الذكور فقط"
-        : "Male Only"
+      ? L("Male Only", "الذكور فقط")
       : record.campaignObj?.gender === "female"
-        ? isArabic
-          ? "الإناث فقط"
-          : "Female Only"
-        : isArabic
-          ? "كلا الجنسين (ذكور وإناث)"
-          : "All (Male & Female)";
+        ? L("Female Only", "الإناث فقط")
+        : L("All (Male & Female)", "كلا الجنسين (ذكور وإناث)");
   const audienceLocation =
     record.campaignObj?.location || (isArabic ? "الجزائر (كافة الولايات)" : "Algeria (National)");
   const organizerText =
-    record.campaignObj?.organizer || (isArabic ? "مؤسسة معتمدة" : "Verified Brand / Organization");
-
-  // Create jsPDF instance
-  const pdf = new jsPDF("p", "mm", "a4");
-
-  // =========================================================================
-  // PAGE 1: COVER & CAMPAIGN SETUP
-  // =========================================================================
-  const canvas1 = document.createElement("canvas");
-  canvas1.width = 1240;
-  canvas1.height = 1754;
-  const ctx1 = canvas1.getContext("2d")!;
-  ctx1.fillStyle = "#ffffff";
-  ctx1.fillRect(0, 0, 1240, 1754);
-
-  drawHeader(
-    ctx1,
-    "AI Campaign Intelligence Audit",
-    "المنصة الذكية لتحليلات الحملات والذكاء الاصطناعي",
-    "CERTIFIED AUDIT REPORT",
-    "تقرير فني رسمي معتمد",
-    dateStr,
-    isArabic,
-    logoImg,
-  );
-
-  // Campaign Title Card
-  ctx1.fillStyle = "#4338ca";
-  ctx1.font = "bold 15px sans-serif";
-  ctx1.fillText(
-    isArabic
-      ? "التقرير التحليلي الشامل والتقييم الاستراتيجي للحملة"
-      : "OFFICIAL CAMPAIGN ASSESSMENT & STRATEGIC INTELLIGENCE",
-    50,
-    165,
-  );
-
-  ctx1.fillStyle = "#0f172a";
-  ctx1.font = "bold 36px 'Space Grotesk', 'Cairo', sans-serif";
-  ctx1.fillText(campaignName, 50, 215);
-
-  ctx1.strokeStyle = "#cbd5e1";
-  ctx1.lineWidth = 1.5;
-  ctx1.beginPath();
-  ctx1.moveTo(50, 240);
-  ctx1.lineTo(1190, 240);
-  ctx1.stroke();
-
-  // 1. Bento Parameters
-  ctx1.fillStyle = "#f8fafc";
-  ctx1.strokeStyle = "#cbd5e1";
-  roundRect(ctx1, 50, 260, 1140, 290, 14, true, true);
-
-  ctx1.fillStyle = "#0f172a";
-  ctx1.font = "bold 18px sans-serif";
-  ctx1.fillText(
-    isArabic
-      ? "١. محددات الحملة الإعلانية والشريحة المستهدفة"
-      : "1. Campaign Parameters & Audience Target",
-    75,
-    300,
-  );
-
-  // 4 Grid Fields
-  const drawParam = (label: string, val: string, x: number, y: number) => {
-    ctx1.fillStyle = "#64748b";
-    ctx1.font = "bold 12px sans-serif";
-    ctx1.fillText(label.toUpperCase(), x, y);
-    ctx1.fillStyle = "#0f172a";
-    ctx1.font = "bold 16px sans-serif";
-    ctx1.fillText(val, x, y + 25);
-  };
-
-  drawParam(isArabic ? "الجهة المنظمة / العلامة" : "Organizer / Brand", organizerText, 75, 345);
-  drawParam(
-    isArabic ? "الميزانية المعتمدة" : "Approved Budget",
-    `$${parseFloat(record.budget || "1000").toLocaleString()} USD`,
-    620,
-    345,
-  );
-  drawParam(
-    isArabic ? "اللهجة اللغوية المستهدفة" : "Target Dialect",
-    dialectNames[dialectKey] || dialectKey,
-    75,
-    420,
-  );
-  drawParam(isArabic ? "فترة تشغيل الحملة" : "Execution Duration", durationText, 620, 420);
-
-  // Audience Pills
-  ctx1.fillStyle = "#64748b";
-  ctx1.font = "bold 12px sans-serif";
-  ctx1.fillText(
-    isArabic ? "المعايير الديموغرافية والنطاق الجغرافي" : "AUDIENCE CRITERIA & GEOGRAPHIC SCOPE",
-    75,
-    490,
-  );
-
-  const drawPill = (text: string, x: number, y: number) => {
-    ctx1.font = "bold 13px sans-serif";
-    const w = ctx1.measureText(text).width + 24;
-    ctx1.fillStyle = "#ffffff";
-    ctx1.strokeStyle = "#cbd5e1";
-    roundRect(ctx1, x, y, w, 32, 8, true, true);
-    ctx1.fillStyle = "#1e293b";
-    ctx1.fillText(text, x + 12, y + 21);
-    return x + w + 12;
-  };
-
-  let pillX = 75;
-  pillX = drawPill(`${isArabic ? "العمر: " : "Age: "}${audienceAge}`, pillX, 505);
-  pillX = drawPill(`${isArabic ? "الجنس: " : "Gender: "}${audienceGender}`, pillX, 505);
-  drawPill(`${isArabic ? "السوق: " : "Market: "}${audienceLocation}`, pillX, 505);
-
-  // Narrative Card
-  ctx1.fillStyle = "#ffffff";
-  ctx1.strokeStyle = "#cbd5e1";
-  roundRect(ctx1, 50, 580, 1140, 190, 14, true, true);
-
-  ctx1.fillStyle = "#475569";
-  ctx1.font = "bold 13px sans-serif";
-  ctx1.fillText(
-    isArabic ? "وصف ومفهوم الحملة الإعلانية" : "CAMPAIGN CONCEPT & NARRATIVE DESCRIPTION",
-    75,
-    615,
-  );
-
-  ctx1.fillStyle = "#1e293b";
-  ctx1.font = "600 15px 'DM Sans', 'Cairo', sans-serif";
-  const descLines = wrapText(
-    ctx1,
-    record.campaignObj?.description ||
-      (isArabic
-        ? "حملة إعلانية مخصصة تهدف إلى تحسين الوعي وتوسيع قاعدة الجمهور المستهدف بمحتوى مبتكر ومؤثر."
-        : "Strategic ad campaign targeting audience expansion and brand affinity with creative execution."),
-    1090,
-  );
-  descLines.slice(0, 5).forEach((line, idx) => {
-    ctx1.fillText(line, 75, 650 + idx * 24);
-  });
-
-  // Message & Slogans Card
-  ctx1.fillStyle = "#ffffff";
-  ctx1.strokeStyle = "#cbd5e1";
-  roundRect(ctx1, 50, 795, 1140, 180, 14, true, true);
-
-  ctx1.fillStyle = "#475569";
-  ctx1.font = "bold 13px sans-serif";
-  ctx1.fillText(
-    isArabic ? "الرسالة الإعلانية الأساسية والشعارات" : "PRIMARY MESSAGE & AD COPY SLOGANS",
-    75,
-    830,
-  );
-
-  ctx1.fillStyle = "#4338ca";
-  ctx1.font = "bold 18px sans-serif";
-  const msgText = `"${record.campaignObj?.message || record.campaignObj?.slogans || (isArabic ? "رسالة تسويقية محددة ومؤثرة." : "Targeted high-resonance marketing message.")}"`;
-  wrapText(ctx1, msgText, 1090)
-    .slice(0, 2)
-    .forEach((l, idx) => {
-      ctx1.fillText(l, 75, 870 + idx * 26);
-    });
-
-  if (record.campaignObj?.slogans) {
-    ctx1.fillStyle = "#64748b";
-    ctx1.font = "italic 14px sans-serif";
-    ctx1.fillText(`«${record.campaignObj.slogans}»`, 75, 940);
-  }
-
-  // Score Dial Card
-  ctx1.fillStyle = "#f8fafc";
-  ctx1.strokeStyle = "#818cf8";
-  roundRect(ctx1, 50, 1000, 1140, 310, 16, true, true);
-
-  ctx1.fillStyle = "#4338ca";
-  ctx1.font = "bold 13px sans-serif";
-  ctx1.fillText(
-    isArabic ? "مؤشر الجاهزية الاستراتيجية الكلي" : "OVERALL STRATEGIC READINESS SCORE",
-    75,
-    1040,
-  );
-
-  // Big score
-  ctx1.fillStyle = "#0f172a";
-  ctx1.font = "bold 76px 'Space Grotesk', sans-serif";
-  ctx1.fillText(`${overallScore}`, 75, 1135);
-
-  ctx1.fillStyle = "#64748b";
-  ctx1.font = "bold 28px sans-serif";
-  ctx1.fillText("/100", 200, 1135);
-
-  // Score status pill
-  const isOptimal = overallScore >= 80;
-  ctx1.fillStyle = isOptimal ? "#dcfce7" : "#fef3c7";
-  ctx1.strokeStyle = isOptimal ? "#86efac" : "#fde68a";
-  roundRect(ctx1, 300, 1075, 300, 48, 12, true, true);
-
-  ctx1.fillStyle = isOptimal ? "#166534" : "#92400e";
-  ctx1.font = "bold 16px sans-serif";
-  ctx1.fillText(
-    isOptimal
-      ? isArabic
-        ? "جاهزية استراتيجية كاملة"
-        : "Optimal Strategic Readiness"
-      : isArabic
-        ? "يوصى ببعض التحسينات"
-        : "Refinement Recommended",
-    320,
-    1106,
-  );
-
-  // Description
-  ctx1.fillStyle = "#334155";
-  ctx1.font = "600 15px 'DM Sans', 'Cairo', sans-serif";
-  const diagLines = wrapText(ctx1, diagnosisText, 1090);
-  diagLines.slice(0, 4).forEach((line, idx) => {
-    ctx1.fillText(line, 75, 1180 + idx * 24);
-  });
-
-  // Objectives Box
-  ctx1.fillStyle = "#ffffff";
-  ctx1.strokeStyle = "#cbd5e1";
-  roundRect(ctx1, 50, 1335, 1140, 320, 14, true, true);
-
-  ctx1.fillStyle = "#0f172a";
-  ctx1.font = "bold 18px sans-serif";
-  ctx1.fillText(
-    isArabic ? "الأهداف التسويقية والمخرجات المعتمدة" : "Campaign Objectives & Key Results",
-    75,
-    1375,
-  );
-
-  ctx1.fillStyle = "#334155";
-  ctx1.font = "500 14px 'DM Sans', 'Cairo', sans-serif";
-  const objLines = wrapText(
-    ctx1,
-    record.campaignObj?.objectives ||
-      (isArabic
-        ? "تعزيز الانتشار وبناء علاقة قوية مع الشريحة المستهدفة، وزيادة معدل التحويل المالي والنقرات بأقل كلفة ممكنة."
-        : "Enhance reach and build long-term affinity with target segments while optimizing conversion cost and return on ad spend."),
-    1090,
-  );
-  objLines.slice(0, 4).forEach((l, idx) => {
-    ctx1.fillText(l, 75, 1415 + idx * 24);
-  });
-
-  drawFooter(ctx1, 1, totalPages, isArabic);
-
-  pdf.addImage(canvas1.toDataURL("image/jpeg", 0.93), "JPEG", 0, 0, 210, 297, undefined, "FAST");
-
-  // =========================================================================
-  // PAGE 2: DIAGNOSIS & ALGERIAN WILAYAS PERFORMANCE
-  // =========================================================================
-  const canvas2 = document.createElement("canvas");
-  canvas2.width = 1240;
-  canvas2.height = 1754;
-  const ctx2 = canvas2.getContext("2d")!;
-  ctx2.fillStyle = "#ffffff";
-  ctx2.fillRect(0, 0, 1240, 1754);
-
-  drawHeader(
-    ctx2,
-    "Strategic Evaluation & Regional Wilayas",
-    "التقييم الاستراتيجي وتحليل الولايات الجزائرية",
-    "REGIONAL MARKET AUDIT",
-    "تدقيق السوق الإقليمي",
-    dateStr,
-    isArabic,
-    logoImg,
-  );
-
-  // Section 1: Evaluation narrative
-  ctx2.fillStyle = "#f8fafc";
-  ctx2.strokeStyle = "#cbd5e1";
-  roundRect(ctx2, 50, 150, 1140, 240, 14, true, true);
-
-  ctx2.fillStyle = "#0f172a";
-  ctx2.font = "bold 18px sans-serif";
-  ctx2.fillText(
-    isArabic
-      ? "١. التقييم الاستراتيجي وملاءمة القنوات"
-      : "1. Strategic Evaluation & Channel Alignment",
-    75,
-    190,
-  );
-
-  ctx2.fillStyle = "#334155";
-  ctx2.font = "500 14px 'DM Sans', 'Cairo', sans-serif";
-  const evalLines = wrapText(ctx2, evaluationText, 1090);
-  evalLines.slice(0, 4).forEach((l, idx) => {
-    ctx2.fillText(l, 75, 230 + idx * 24);
-  });
-
-  // Section 2: Regional Wilayas Table
-  ctx2.fillStyle = "#0f172a";
-  ctx2.font = "bold 20px sans-serif";
-  ctx2.fillText(
-    isArabic
-      ? "٢. مؤشر الجاهزية والتفاعل حسب الولايات (الجزائر)"
-      : "2. Regional Wilayas Reach & Engagement Audit (Algeria)",
-    50,
-    435,
-  );
-
-  // Table Container
-  ctx2.fillStyle = "#ffffff";
-  ctx2.strokeStyle = "#cbd5e1";
-  roundRect(ctx2, 50, 460, 1140, 800, 14, true, true);
-
-  // Table Header Row
-  ctx2.fillStyle = "#091c52";
-  roundRect(ctx2, 50, 460, 1140, 55, 14, true, false);
-
-  ctx2.fillStyle = "#ffffff";
-  ctx2.font = "bold 13px sans-serif";
-  ctx2.fillText(isArabic ? "الولاية / المنطقة" : "WILAYA / REGION", 80, 495);
-  ctx2.fillText(isArabic ? "الرمز" : "CODE", 350, 495);
-  ctx2.fillText(isArabic ? "درجة التوافق" : "READINESS", 450, 495);
-  ctx2.fillText(isArabic ? "الحالة" : "STATUS", 610, 495);
-  ctx2.fillText(isArabic ? "الوصول المقدر" : "EST. REACH", 790, 495);
-  ctx2.fillText(isArabic ? "التفاعل" : "ENGAGEMENT", 950, 495);
-  ctx2.fillText(isArabic ? "المنصة المثلى" : "TOP PLATFORM", 1070, 495);
-
-  // Wilaya Rows
-  wilayaRows.forEach((row, i) => {
-    const rowY = 525 + i * 115;
-
-    // Row zebra background
-    if (i % 2 === 1) {
-      ctx2.fillStyle = "#f8fafc";
-      ctx2.fillRect(51, rowY - 5, 1138, 110);
-    }
-
-    // Divider line
-    ctx2.strokeStyle = "#e2e8f0";
-    ctx2.lineWidth = 1;
-    ctx2.beginPath();
-    ctx2.moveTo(70, rowY + 105);
-    ctx2.lineTo(1170, rowY + 105);
-    ctx2.stroke();
-
-    // Data values
-    ctx2.fillStyle = "#0f172a";
-    ctx2.font = "bold 16px sans-serif";
-    ctx2.fillText(row.name, 80, rowY + 55);
-
-    ctx2.fillStyle = "#4338ca";
-    ctx2.font = "bold 15px monospace";
-    ctx2.fillText(String(row.code).padStart(2, "0"), 355, rowY + 55);
-
-    // Score bar & value
-    ctx2.fillStyle = row.score >= 80 ? "#16a34a" : row.score >= 65 ? "#d97706" : "#dc2626";
-    ctx2.font = "bold 17px sans-serif";
-    ctx2.fillText(`${row.score}/100`, 450, rowY + 45);
-
-    // Mini progress bar
-    ctx2.fillStyle = "#e2e8f0";
-    roundRect(ctx2, 450, rowY + 60, 110, 8, 4, true, false);
-    ctx2.fillStyle = row.score >= 80 ? "#16a34a" : row.score >= 65 ? "#d97706" : "#dc2626";
-    roundRect(ctx2, 450, rowY + 60, (row.score / 100) * 110, 8, 4, true, false);
-
-    // Status Pill
-    const isOptimalRow = row.score >= 80;
-    ctx2.fillStyle = isOptimalRow ? "#dcfce7" : "#fef3c7";
-    ctx2.strokeStyle = isOptimalRow ? "#86efac" : "#fde68a";
-    roundRect(ctx2, 600, rowY + 30, 140, 36, 8, true, true);
-    ctx2.fillStyle = isOptimalRow ? "#166534" : "#92400e";
-    ctx2.font = "bold 12px sans-serif";
-    ctx2.fillText(row.statusLabel, 615, rowY + 53);
-
-    // Reach
-    ctx2.fillStyle = "#0f172a";
-    ctx2.font = "bold 15px monospace";
-    ctx2.fillText(`${row.views.toLocaleString()} views`, 780, rowY + 55);
-
-    // Engagement
-    ctx2.fillStyle = "#2563eb";
-    ctx2.font = "bold 16px monospace";
-    ctx2.fillText(`${row.engagementRate}%`, 955, rowY + 55);
-
-    // Top Platform
-    ctx2.fillStyle = "#475569";
-    ctx2.font = "bold 14px sans-serif";
-    ctx2.fillText(row.bestPlatform, 1070, rowY + 55);
-  });
-
-  // Section 3: Platform allocation insights
-  ctx2.fillStyle = "#ffffff";
-  ctx2.strokeStyle = "#cbd5e1";
-  roundRect(ctx2, 50, 1300, 1140, 340, 14, true, true);
-
-  ctx2.fillStyle = "#0f172a";
-  ctx2.font = "bold 18px sans-serif";
-  ctx2.fillText(
-    isArabic
-      ? "٣. توزيع الميزانية وفاعلية المنصات الرقمية"
-      : "3. Media Channel Performance Insights",
-    75,
-    1340,
-  );
-
-  ctx2.fillStyle = "#334155";
-  ctx2.font = "500 14px 'DM Sans', 'Cairo', sans-serif";
-  const platLines = wrapText(
-    ctx2,
-    record.aiReport?.platformAnalysis ||
-      (isArabic
-        ? "تحقق منصتا إنستجرام وتيك توك أعلى معدلات تفاعل عضوي، حيث يتجاوز التفاعل مع مقاطع ريلز والفيديو القصيرة ضعف المنشورات العادية، بينما يحافظ فيسبوك على وصول عائلي مستقر وشامل."
-        : "Instagram Reels and TikTok consistently produce the highest organic engagement metrics, outperforming static creatives by over 2x. Facebook delivers dependable baseline reach across family demographics."),
-    1090,
-  );
-  platLines.slice(0, 5).forEach((l, idx) => {
-    ctx2.fillText(l, 75, 1380 + idx * 24);
-  });
-
-  drawFooter(ctx2, 2, totalPages, isArabic);
-
-  pdf.addPage();
-  pdf.addImage(canvas2.toDataURL("image/jpeg", 0.93), "JPEG", 0, 0, 210, 297, undefined, "FAST");
-
-  // =========================================================================
-  // PAGE 3: SWOT MATRIX & AI FORECAST
-  // =========================================================================
-  const canvas3 = document.createElement("canvas");
-  canvas3.width = 1240;
-  canvas3.height = 1754;
-  const ctx3 = canvas3.getContext("2d")!;
-  ctx3.fillStyle = "#ffffff";
-  ctx3.fillRect(0, 0, 1240, 1754);
-
-  drawHeader(
-    ctx3,
-    "SWOT Intelligence & Audience Forecast",
-    "التحليل الرباعي وتوقعات الانتشار الجماهيري",
-    "STRATEGIC SWOT ANALYSIS",
-    "تحليل استراتيجي معتمد",
-    dateStr,
-    isArabic,
-    logoImg,
-  );
-
-  // Performance Forecast
-  ctx3.fillStyle = "#f8fafc";
-  ctx3.strokeStyle = "#cbd5e1";
-  roundRect(ctx3, 50, 150, 1140, 240, 14, true, true);
-
-  ctx3.fillStyle = "#0f172a";
-  ctx3.font = "bold 18px sans-serif";
-  ctx3.fillText(
-    isArabic
-      ? "١. توقعات الأداء الجماهيري والانتشار العضوي"
-      : "1. Performance Forecast & Audience Behavior",
-    75,
-    190,
-  );
-
-  ctx3.fillStyle = "#334155";
-  ctx3.font = "500 14px 'DM Sans', 'Cairo', sans-serif";
-  const fcLines = wrapText(ctx3, forecastText, 1090);
-  fcLines.slice(0, 4).forEach((l, idx) => {
-    ctx3.fillText(l, 75, 230 + idx * 24);
-  });
-
-  // 2x2 SWOT Matrix
-  ctx3.fillStyle = "#0f172a";
-  ctx3.font = "bold 20px sans-serif";
-  ctx3.fillText(
-    isArabic
-      ? "٢. مصفوفة التحليل الرباعي الاستراتيجي (SWOT Matrix)"
-      : "2. Strategic SWOT Matrix & Risk Audit",
-    50,
-    440,
-  );
-
-  const drawSwotBox = (
-    title: string,
-    items: string[],
-    x: number,
-    y: number,
-    bgCol: string,
-    borderCol: string,
-    titleCol: string,
-  ) => {
-    ctx3.fillStyle = bgCol;
-    ctx3.strokeStyle = borderCol;
-    roundRect(ctx3, x, y, 555, 560, 14, true, true);
-
-    ctx3.fillStyle = titleCol;
-    ctx3.font = "bold 18px sans-serif";
-    ctx3.fillText(title, x + 25, y + 45);
-
-    ctx3.strokeStyle = borderCol;
-    ctx3.lineWidth = 1;
-    ctx3.beginPath();
-    ctx3.moveTo(x + 25, y + 60);
-    ctx3.lineTo(x + 530, y + 60);
-    ctx3.stroke();
-
-    items.slice(0, 3).forEach((item, idx) => {
-      ctx3.fillStyle = titleCol;
-      ctx3.font = "bold 16px sans-serif";
-      ctx3.fillText("●", x + 25, y + 100 + idx * 135);
-
-      ctx3.fillStyle = "#1e293b";
-      ctx3.font = "600 14px 'DM Sans', 'Cairo', sans-serif";
-      const lines = wrapText(ctx3, item, 480);
-      lines.slice(0, 4).forEach((l, lIdx) => {
-        ctx3.fillText(l, x + 48, y + 100 + idx * 135 + lIdx * 22);
-      });
-    });
-  };
-
-  // Top Left: Strengths
-  drawSwotBox(
-    isArabic ? "نقاط القوة (Strengths)" : "Strengths (Key Assets)",
-    finalStrengths,
-    50,
-    470,
-    "#f0fdf4",
-    "#86efac",
-    "#166534",
-  );
-
-  // Top Right: Weaknesses
-  drawSwotBox(
-    isArabic ? "نقاط الضعف (Weaknesses)" : "Weaknesses (Risk Points)",
-    finalWeaknesses,
-    635,
-    470,
-    "#fef2f2",
-    "#fca5a5",
-    "#991b1b",
-  );
-
-  // Bottom Left: Opportunities
-  drawSwotBox(
-    isArabic ? "الفرص المتاحة (Opportunities)" : "Opportunities (Growth Drivers)",
-    finalOpportunities,
-    50,
-    1060,
-    "#eff6ff",
-    "#93c5fd",
-    "#1e40af",
-  );
-
-  // Bottom Right: Threats
-  drawSwotBox(
-    isArabic ? "التحديات والمخاطر (Threats)" : "Threats (Market Buffers)",
-    finalThreats,
-    635,
-    1060,
-    "#fff7ed",
-    "#fdba74",
-    "#9a3412",
-  );
-
-  drawFooter(ctx3, 3, totalPages, isArabic);
-
-  pdf.addPage();
-  pdf.addImage(canvas3.toDataURL("image/jpeg", 0.93), "JPEG", 0, 0, 210, 297, undefined, "FAST");
-
-  // =========================================================================
-  // PAGE 4: RECOMMENDATIONS & MEDIA ALLOCATION ROADMAP
-  // =========================================================================
-  const canvas4 = document.createElement("canvas");
-  canvas4.width = 1240;
-  canvas4.height = 1754;
-  const ctx4 = canvas4.getContext("2d")!;
-  ctx4.fillStyle = "#ffffff";
-  ctx4.fillRect(0, 0, 1240, 1754);
-
-  drawHeader(
-    ctx4,
-    "Actionable Recommendations & Roadmap",
-    "التوصيات الاستراتيجية وخطة العمل التنفيذية",
-    "CERTIFIED ACTION PLAN",
-    "خطة العمل المعتمدة",
-    dateStr,
-    isArabic,
-    logoImg,
-  );
-
-  // Title
-  ctx4.fillStyle = "#0f172a";
-  ctx4.font = "bold 20px sans-serif";
-  ctx4.fillText(
-    isArabic
-      ? "١. أولويات العمل والتوصيات المباشرة للتطبيق"
-      : "1. Prioritized Strategic Action Recommendations",
-    50,
-    165,
-  );
-
-  // 3 Recommendation Cards
-  finalRecommendations.slice(0, 3).forEach((rec, idx) => {
-    const cardY = 195 + idx * 240;
-    ctx4.fillStyle = "#ffffff";
-    ctx4.strokeStyle = "#cbd5e1";
-    roundRect(ctx4, 50, cardY, 1140, 215, 14, true, true);
-
-    // Number circle
-    ctx4.fillStyle = "#4338ca";
-    roundRect(ctx4, 75, cardY + 25, 36, 36, 18, true, false);
-    ctx4.fillStyle = "#ffffff";
-    ctx4.font = "bold 16px sans-serif";
-    ctx4.textAlign = "center";
-    ctx4.fillText(`${idx + 1}`, 93, cardY + 49);
-    ctx4.textAlign = "left";
-
-    // Category badge
-    ctx4.fillStyle = "#e0e7ff";
-    roundRect(ctx4, 125, cardY + 27, 140, 30, 6, true, false);
-    ctx4.fillStyle = "#3730a3";
-    ctx4.font = "bold 11px sans-serif";
-    ctx4.fillText(rec.category, 140, cardY + 47);
-
-    // Title
-    ctx4.fillStyle = "#0f172a";
-    ctx4.font = "bold 18px 'Space Grotesk', 'Cairo', sans-serif";
-    ctx4.fillText(rec.title, 280, cardY + 49);
-
-    // Details
-    ctx4.fillStyle = "#334155";
-    ctx4.font = "500 15px 'DM Sans', 'Cairo', sans-serif";
-    const lines = wrapText(ctx4, rec.detail, 1080);
-    lines.slice(0, 4).forEach((l, lIdx) => {
-      ctx4.fillText(l, 75, cardY + 105 + lIdx * 25);
-    });
-  });
-
-  // Channel Distribution
-  ctx4.fillStyle = "#f8fafc";
-  ctx4.strokeStyle = "#cbd5e1";
-  roundRect(ctx4, 50, 960, 1140, 260, 14, true, true);
-
-  ctx4.fillStyle = "#0f172a";
-  ctx4.font = "bold 18px sans-serif";
-  ctx4.fillText(
-    isArabic ? "٢. توزيع الميزانية الأمثل حسب القنوات" : "2. Recommended Media Budget Distribution",
-    75,
-    1000,
-  );
-
-  // Bars
-  const drawChannelBar = (name: string, pct: number, y: number, color: string) => {
-    ctx4.fillStyle = "#0f172a";
-    ctx4.font = "bold 14px sans-serif";
-    ctx4.fillText(name, 75, y);
-
-    ctx4.fillStyle = "#e2e8f0";
-    roundRect(ctx4, 250, y - 16, 750, 22, 6, true, false);
-
-    ctx4.fillStyle = color;
-    roundRect(ctx4, 250, y - 16, (pct / 100) * 750, 22, 6, true, false);
-
-    ctx4.fillStyle = "#0f172a";
-    ctx4.font = "bold 14px monospace";
-    ctx4.fillText(`${pct}%`, 1020, y);
-  };
-
-  drawChannelBar("Instagram Reels & Stories", 45, 1050, "#e1306c");
-  drawChannelBar("TikTok Short Video", 35, 1100, "#000000");
-  drawChannelBar("Facebook Feed & Groups", 20, 1150, "#1877f2");
-
-  // Official Seal / Certification Box
-  ctx4.fillStyle = "#f0fdf4";
-  ctx4.strokeStyle = "#86efac";
-  roundRect(ctx4, 50, 1260, 1140, 390, 16, true, true);
-
-  ctx4.fillStyle = "#166534";
-  ctx4.font = "bold 22px sans-serif";
-  ctx4.fillText(
-    isArabic ? "الاعتماد الرسمي وتوثيق جودة الحملة" : "Official Audit Verification & Seal",
-    80,
-    1310,
-  );
-
-  ctx4.fillStyle = "#1e293b";
-  ctx4.font = "500 14px 'DM Sans', 'Cairo', sans-serif";
-  const sealText = isArabic
-    ? "تم تدقيق ومطابقة مخرجات هذه الحملة الإعلانية باستخدام خوارزميات الذكاء الاصطناعي المتقدمة لمنصة Public Insight. تم تقييم المؤشرات وفقاً لمحددات السوق الجزائري والإقليمي بما يضمن أعلى درجات الكفاءة الإعلانية والمواءمة الثقافية."
-    : "This campaign audit report has been verified through Public Insight's artificial intelligence algorithms. Key metrics adhere to regional Algerian benchmarks, certifying audience readiness, cultural alignment, and budget efficiency.";
-
-  wrapText(ctx4, sealText, 1080)
-    .slice(0, 4)
-    .forEach((l, idx) => {
-      ctx4.fillText(l, 80, 1355 + idx * 24);
-    });
-
-  // Stamp Box
-  ctx4.strokeStyle = "#4338ca";
-  ctx4.lineWidth = 2;
-  roundRect(ctx4, 80, 1470, 360, 140, 8, false, true);
-
-  ctx4.fillStyle = "#4338ca";
-  ctx4.font = "bold 14px monospace";
-  ctx4.fillText("PUBLIC INSIGHT ANALYTICS", 100, 1505);
-  ctx4.fillText("VERIFIED AUDIT SEAL", 100, 1535);
-  ctx4.font = "600 11px monospace";
-  ctx4.fillText(
-    `AUDIT-ID: PI-${record.id || "GEN"}-${Date.now().toString(36).toUpperCase()}`,
-    100,
-    1565,
-  );
-  ctx4.fillText(`STAMP-DATE: ${dateStr}`, 100, 1590);
-
-  drawFooter(ctx4, 4, totalPages, isArabic);
-
-  pdf.addPage();
-  pdf.addImage(canvas4.toDataURL("image/jpeg", 0.93), "JPEG", 0, 0, 210, 297, undefined, "FAST");
-
-  // =========================================================================
-  // PAGE 5: POST-CAMPAIGN SURVEY & QR SENTIMENT (IF POST LAUNCH)
-  // =========================================================================
+    record.campaignObj?.organizer || (isArabic ? "مؤسسة معتمدة" : "Verified Organization");
+
+  // Reusable Page Header with Enterprise BI Dark Accent Top
+  const makePageHeader = (
+    pageTitleEn: string,
+    pageTitleAr: string,
+    badgeEn: string,
+    badgeAr: string,
+  ) => `
+    <div style="margin-bottom: 20px;">
+      <!-- Top Accent Gradient Line -->
+      <div style="height: 4px; background: linear-gradient(90deg, #4338ca 0%, #3b82f6 50%, #06b6d4 100%); border-radius: 4px; margin-bottom: 14px;"></div>
+      
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <div style="width: 46px; height: 46px; border-radius: 12px; overflow: hidden; background: #0f172a; border: 1.5px solid #334155; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 4px 10px rgba(15, 23, 42, 0.12);">
+            <img src="${APP_LOGO_BASE64}" alt="Public Insight Logo" style="width: 100%; height: 100%; object-fit: cover; display: block;" />
+          </div>
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 20px; font-weight: 900; color: #0f172a; line-height: 1.1; letter-spacing: -0.3px;">Public Insight</span>
+              <span style="font-size: 8.5px; font-weight: 800; color: #4338ca; background: #eef2ff; border: 1px solid #c7d2fe; padding: 2px 7px; border-radius: 9999px; text-transform: uppercase;">BI Analytics</span>
+            </div>
+            <div style="font-size: 11px; font-weight: 700; color: #475569; margin-top: 3px;">
+              ${L(pageTitleEn, pageTitleAr)}
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+          <div style="display: inline-flex; align-items: center; gap: 5px; background: #f8fafc; border: 1px solid #cbd5e1; padding: 4px 10px; border-radius: 8px;">
+            <span style="width: 6px; height: 6px; border-radius: 50%; background: #10b981;"></span>
+            <span style="font-size: 9px; font-weight: 800; color: #1e293b; letter-spacing: 0.3px;">
+              ${L(badgeEn, badgeAr)}
+            </span>
+          </div>
+          <span style="font-size: 9.5px; color: #64748b; font-weight: 700; font-family: monospace;">
+            ${record.date || new Date().toISOString().split("T")[0]}
+          </span>
+        </div>
+      </div>
+      <div style="height: 1px; background: #e2e8f0; margin-top: 14px;"></div>
+    </div>
+  `;
+
+  // Reusable Page Footer
+  const makePageFooter = (pageNum: number) => `
+    <div style="border-top: 1px solid #e2e8f0; padding-top: 12px; margin-top: 16px; display: flex; justify-content: space-between; align-items: center; font-size: 9px; color: #64748b; font-weight: 700;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 4px; background: #4338ca; color: #ffffff; font-size: 8px; font-weight: 900;">PI</span>
+        <span style="color: #334155; font-weight: 700;">
+          ${L("Public Insight Intelligence Platform • Certified Executive Brief", "منصة Public Insight للتحليلات الذكية • تقرير فني واستراتيجي معتمد")}
+        </span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 6px; background: #f8fafc; border: 1px solid #e2e8f0; padding: 3px 10px; border-radius: 9999px;">
+        <span style="font-family: monospace; font-size: 9.5px; color: #0f172a; font-weight: 800;">
+          ${L(`Page ${pageNum} of ${totalPages}`, `الصفحة ${pageNum} من ${totalPages}`)}
+        </span>
+      </div>
+    </div>
+  `;
+
+  let feedbackHtmlPage = "";
   if (isPostCampaign) {
     const feedbacks = getPdfCampaignFeedback(record.id, record.score, isArabic);
     const total = feedbacks.length;
+    const ageUnder18 = feedbacks.filter((f) => f.age === "under-18").length;
+    const age18_24 = feedbacks.filter((f) => f.age === "18-24").length;
+    const age25_34 = feedbacks.filter((f) => f.age === "25-34").length;
+    const age35_44 = feedbacks.filter((f) => f.age === "35-44").length;
+    const age45_plus = feedbacks.filter((f) => f.age === "45-54" || f.age === "55-plus").length;
     const male = feedbacks.filter((f) => f.gender === "male").length;
     const female = feedbacks.filter((f) => f.gender === "female").length;
     const q1Yes = feedbacks.filter((f) => f.q1 === "yes").length;
     const q2Yes = feedbacks.filter((f) => f.q2 === "yes").length;
+    const comments = feedbacks.filter((f) => f.opinion && f.opinion.trim().length > 0).slice(0, 3);
 
-    const canvas5 = document.createElement("canvas");
-    canvas5.width = 1240;
-    canvas5.height = 1754;
-    const ctx5 = canvas5.getContext("2d")!;
-    ctx5.fillStyle = "#ffffff";
-    ctx5.fillRect(0, 0, 1240, 1754);
-
-    drawHeader(
-      ctx5,
-      "Field Survey & Offline QR Sentiment",
-      "الاستطلاع الميداني والآراء المباشرة عبر رمز QR",
-      "FIELD AUDIENCE SURVEY",
-      "استطلاع ميداني معتمد",
-      dateStr,
-      isArabic,
-      logoImg,
-    );
-
-    // 3 Bento Stats
-    const drawStatTile = (
-      label: string,
-      val: string,
-      x: number,
-      bgCol: string,
-      borderCol: string,
-      valCol: string,
-    ) => {
-      ctx5.fillStyle = bgCol;
-      ctx5.strokeStyle = borderCol;
-      roundRect(ctx5, x, 160, 360, 150, 14, true, true);
-
-      ctx5.fillStyle = "#475569";
-      ctx5.font = "bold 13px sans-serif";
-      ctx5.fillText(label.toUpperCase(), x + 25, 205);
-
-      ctx5.fillStyle = valCol;
-      ctx5.font = "bold 44px 'Space Grotesk', monospace";
-      ctx5.fillText(val, x + 25, 275);
+    const fStats = {
+      total,
+      malePct: total ? Math.round((male / total) * 100) : 50,
+      femalePct: total ? Math.round((female / total) * 100) : 50,
+      q1Pct: total ? Math.round((q1Yes / total) * 100) : 85,
+      q2Pct: total ? Math.round((q2Yes / total) * 100) : 78,
+      age: {
+        under18: total ? Math.round((ageUnder18 / total) * 100) : 10,
+        age18_24: total ? Math.round((age18_24 / total) * 100) : 35,
+        age25_34: total ? Math.round((age25_34 / total) * 100) : 32,
+        age35_44: total ? Math.round((age35_44 / total) * 100) : 15,
+        age45_plus: total ? Math.round((age45_plus / total) * 100) : 8,
+      },
     };
 
-    drawStatTile(
-      isArabic ? "إجمالي المشاركين" : "Total Respondents",
-      `${total || 32}`,
-      50,
-      "#f8fafc",
-      "#cbd5e1",
-      "#0f172a",
-    );
-    drawStatTile(
-      isArabic ? "وضوح واستيعاب الرسالة" : "Message Clarity Rate",
-      `${total ? Math.round((q1Yes / total) * 100) : 85}%`,
-      440,
-      "#f0fdf4",
-      "#86efac",
-      "#15803d",
-    );
-    drawStatTile(
-      isArabic ? "التأثير في القناعة والسلوك" : "Behavioral Influence",
-      `${total ? Math.round((q2Yes / total) * 100) : 78}%`,
-      830,
-      "#eff6ff",
-      "#93c5fd",
-      "#1d4ed8",
-    );
+    feedbackHtmlPage = `
+      <!-- ==================== PAGE 5: AUDIENCE SURVEY & FIELD QR SENTIMENT ==================== -->
+      <div id="pdf-page-5" class="pdf-page" style="width: 794px; height: 1123px; padding: 38px 44px; box-sizing: border-box; background: #ffffff; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; position: relative;">
+        <div>
+          ${makePageHeader("Field Survey & Offline QR Audience Sentiment", "الاستطلاع الميداني والآراء المباشرة عبر رمز QR", "FIELD AUDIENCE SURVEY", "استطلاع ميداني معتمد")}
 
-    // Gender breakdown
-    ctx5.fillStyle = "#ffffff";
-    ctx5.strokeStyle = "#cbd5e1";
-    roundRect(ctx5, 50, 340, 1140, 200, 14, true, true);
+          <!-- Top Intro Card -->
+          <div style="background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 14px 18px; margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <h3 style="font-size: 13px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 8px;">
+                <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px; background: #4338ca; color: #ffffff; font-size: 11px;">📊</span>
+                <span>${L("1. Field Survey & Offline QR Metrics", "١. نتائج الاستطلاع الميداني وتفاعل الجمهور")}</span>
+              </h3>
+              <span style="font-size: 9.5px; font-weight: 800; color: #4338ca; background: #e0e7ff; padding: 2px 8px; border-radius: 6px;">
+                ${L(`Sample: ${fStats.total} Respondents`, `عينة الاستطلاع: ${fStats.total} مشاركاً`)}
+              </span>
+            </div>
+            <p style="font-size: 10.5px; color: #475569; line-height: 1.6; text-align: justify; margin: 0;">
+              ${L(
+                "Aggregated responses collected from real audience touchpoints and on-the-ground QR scan portals. This empirical data reflects immediate public comprehension and behavioral intent.",
+                "بيانات مجمعة من نقاط الاتصال الميدانية وبوابات مسح رمز QR المخصصة للحملة. تعكس هذه الأرقام مستوى الفهم الفعلي للرسالة ونوايا الجمهور السلوكية بدقة ومصداقية.",
+              )}
+            </p>
+          </div>
 
-    ctx5.fillStyle = "#0f172a";
-    ctx5.font = "bold 18px sans-serif";
-    ctx5.fillText(
-      isArabic
-        ? "التوزيع الديموغرافي للمشاركين في الاستطلاع"
-        : "Respondent Demographic Distribution",
-      75,
-      380,
-    );
+          <!-- Top Stats Row -->
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px;">
+            <div style="border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 12px; background: #ffffff; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+              <span style="font-size: 9px; font-weight: 800; color: #64748b; display: block; text-transform: uppercase;">
+                ${L("Total Responses", "إجمالي المشاركات")}
+              </span>
+              <span style="font-size: 20px; font-weight: 900; color: #0f172a; font-family: monospace; margin-top: 4px; display: block;">
+                ${fStats.total}
+              </span>
+            </div>
 
-    const mPct = total ? Math.round((male / total) * 100) : 52;
-    const fPct = 100 - mPct;
+            <div style="border: 1.5px solid #a7f3d0; border-radius: 12px; padding: 12px; background: #ecfdf5; text-align: center;">
+              <span style="font-size: 9px; font-weight: 800; color: #047857; display: block; text-transform: uppercase;">
+                ${L("Message Clear (Q1)", "وضوح الرسالة")}
+              </span>
+              <span style="font-size: 20px; font-weight: 900; color: #065f46; font-family: monospace; margin-top: 4px; display: block;">
+                ${fStats.q1Pct}%
+              </span>
+            </div>
 
-    ctx5.fillStyle = "#0284c7";
-    ctx5.font = "bold 15px sans-serif";
-    ctx5.fillText(`${isArabic ? "ذكور: " : "Male: "}${mPct}%`, 75, 430);
+            <div style="border: 1.5px solid #bfdbfe; border-radius: 12px; padding: 12px; background: #eff6ff; text-align: center;">
+              <span style="font-size: 9px; font-weight: 800; color: #1d4ed8; display: block; text-transform: uppercase;">
+                ${L("Would Recommend (Q2)", "الاستعداد للتوصية")}
+              </span>
+              <span style="font-size: 20px; font-weight: 900; color: #1e40af; font-family: monospace; margin-top: 4px; display: block;">
+                ${fStats.q2Pct}%
+              </span>
+            </div>
 
-    ctx5.fillStyle = "#db2777";
-    ctx5.font = "bold 15px sans-serif";
-    ctx5.fillText(`${isArabic ? "إناث: " : "Female: "}${fPct}%`, 620, 430);
+            <div style="border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 12px; background: #ffffff; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+              <span style="font-size: 9px; font-weight: 800; color: #64748b; display: block; text-transform: uppercase;">
+                ${L("Gender Ratio", "نسبة الجنس")}
+              </span>
+              <span style="font-size: 13px; font-weight: 900; color: #0f172a; margin-top: 6px; display: block;">
+                ${fStats.malePct}% M / ${fStats.femalePct}% F
+              </span>
+            </div>
+          </div>
 
-    ctx5.fillStyle = "#0284c7";
-    roundRect(ctx5, 75, 455, (mPct / 100) * 1090, 24, 6, true, false);
+          <!-- Age Demographics Bar Chart -->
+          <div style="border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 14px 18px; background: #ffffff; margin-bottom: 16px;">
+            <h4 style="font-size: 11px; font-weight: 800; color: #0f172a; margin: 0 0 10px 0; border-bottom: 1px solid #f1f5f9; padding-bottom: 6px;">
+              ${L("Audience Age Distribution (Survey Respondents)", "التوزيع العمري للمشاركين في الاستطلاع")}
+            </h4>
+            <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; text-align: center;">
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 4px;">
+                <span style="font-size: 9px; font-weight: 800; color: #64748b; display: block;">< 18</span>
+                <span style="font-size: 14px; font-weight: 900; color: #4338ca; font-family: monospace; margin-top: 2px; display: block;">${fStats.age.under18}%</span>
+              </div>
+              <div style="background: #eef2ff; border: 1.5px solid #c7d2fe; border-radius: 8px; padding: 8px 4px;">
+                <span style="font-size: 9px; font-weight: 800; color: #4338ca; display: block;">18 - 24</span>
+                <span style="font-size: 14px; font-weight: 900; color: #3730a3; font-family: monospace; margin-top: 2px; display: block;">${fStats.age.age18_24}%</span>
+              </div>
+              <div style="background: #eef2ff; border: 1.5px solid #c7d2fe; border-radius: 8px; padding: 8px 4px;">
+                <span style="font-size: 9px; font-weight: 800; color: #4338ca; display: block;">25 - 34</span>
+                <span style="font-size: 14px; font-weight: 900; color: #3730a3; font-family: monospace; margin-top: 2px; display: block;">${fStats.age.age25_34}%</span>
+              </div>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 4px;">
+                <span style="font-size: 9px; font-weight: 800; color: #64748b; display: block;">35 - 44</span>
+                <span style="font-size: 14px; font-weight: 900; color: #4338ca; font-family: monospace; margin-top: 2px; display: block;">${fStats.age.age35_44}%</span>
+              </div>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 4px;">
+                <span style="font-size: 9px; font-weight: 800; color: #64748b; display: block;">45+</span>
+                <span style="font-size: 14px; font-weight: 900; color: #4338ca; font-family: monospace; margin-top: 2px; display: block;">${fStats.age.age45_plus}%</span>
+              </div>
+            </div>
+          </div>
 
-    ctx5.fillStyle = "#db2777";
-    roundRect(ctx5, 75 + (mPct / 100) * 1090, 455, (fPct / 100) * 1090, 24, 6, true, false);
+          <!-- Selected Direct Testimonials / User Opinions -->
+          <div>
+            <h4 style="font-size: 11px; font-weight: 800; color: #0f172a; margin: 0 0 10px 0; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+              <span>💬</span>
+              <span>${L("Sample Qualitative Audience Impressions (Verified)", "نماذج من آراء وانطباعات الجمهور الميداني (موثقة)")}</span>
+            </h4>
+            <div style="display: flex; flex-direction: column; gap: 9px;">
+              ${comments
+                .map(
+                  (c) => `
+                <div style="background: #ffffff; border: 1.5px solid #e2e8f0; border-left: ${isArabic ? "1.5px solid #e2e8f0" : "3px solid #4338ca"}; border-right: ${isArabic ? "3px solid #4338ca" : "1.5px solid #e2e8f0"}; border-radius: 8px; padding: 10px 14px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <span style="font-size: 9.5px; font-weight: 800; color: #4338ca;">
+                      ${L(c.gender === "male" ? "Male Participant" : "Female Participant", c.gender === "male" ? "مشارك (ذكر)" : "مشاركة (أنثى)")} • ${c.age}
+                    </span>
+                    <span style="font-size: 9px; color: #94a3b8; font-family: monospace;">${c.date || "2026-07-08"}</span>
+                  </div>
+                  <p style="font-size: 10px; color: #1e293b; line-height: 1.6; margin: 0; font-weight: 600;">
+                    "${c.opinion}"
+                  </p>
+                </div>
+              `,
+                )
+                .join("")}
+            </div>
+          </div>
+        </div>
 
-    // Direct Opinions
-    ctx5.fillStyle = "#0f172a";
-    ctx5.font = "bold 20px sans-serif";
-    ctx5.fillText(
-      isArabic
-        ? "نماذج من آراء وتعليقات الجمهور الميداني"
-        : "Audience Voice & Sample Verbatim Feedback",
-      50,
-      590,
-    );
-
-    feedbacks.slice(0, 4).forEach((fb, idx) => {
-      const fbY = 620 + idx * 240;
-      ctx5.fillStyle = "#f8fafc";
-      ctx5.strokeStyle = "#cbd5e1";
-      roundRect(ctx5, 50, fbY, 1140, 210, 14, true, true);
-
-      ctx5.fillStyle = "#4338ca";
-      ctx5.font = "bold 14px sans-serif";
-      ctx5.fillText(`Respondent #${idx + 1} (${fb.gender}, ${fb.age})`, 75, fbY + 40);
-
-      ctx5.fillStyle = "#1e293b";
-      ctx5.font = "italic 16px 'DM Sans', 'Cairo', sans-serif";
-      const quote = `"${fb.opinion || (isArabic ? "حملة متميزة وواضحة جداً وتلامس الواقع." : "Clear and engaging presentation with impactful delivery.")}"`;
-      wrapText(ctx5, quote, 1080)
-        .slice(0, 3)
-        .forEach((l, lIdx) => {
-          ctx5.fillText(l, 75, fbY + 80 + lIdx * 26);
-        });
-    });
-
-    drawFooter(ctx5, 5, 5, isArabic);
-
-    pdf.addPage();
-    pdf.addImage(canvas5.toDataURL("image/jpeg", 0.93), "JPEG", 0, 0, 210, 297, undefined, "FAST");
+        <div>
+          ${makePageFooter(5)}
+        </div>
+      </div>
+    `;
   }
 
-  // Generate outputs
-  const pdfBlob = pdf.output("blob");
-  const dataUri = pdf.output("datauristring");
-  const blobUrl = URL.createObjectURL(pdfBlob);
+  const container = document.createElement("div");
+  container.id = "pdf-export-container";
+  container.style.position = "fixed";
+  container.style.top = "0";
+  container.style.left = "0";
+  container.style.width = "794px";
+  container.style.minWidth = "794px";
+  container.style.maxWidth = "794px";
+  container.style.zIndex = "-9999";
+  container.style.opacity = "1";
+  container.style.pointerEvents = "none";
+  container.style.overflow = "visible";
+  container.style.backgroundColor = "#ffffff";
 
-  // Directly trigger download to PC
-  await downloadPDFDirectly(pdfBlob, dataUri, fileName);
+  container.innerHTML = `
+    <div id="pdf-report-root" style="width: 794px; background-color: #ffffff; color: #0f172a; direction: ${isArabic ? "rtl" : "ltr"}; text-align: ${isArabic ? "right" : "left"}; font-family: ${isArabic ? "'Cairo', 'Segoe UI', Tahoma, sans-serif" : "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"}; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility;">
+      
+      <!-- ==================== PAGE 1: COVER & CAMPAIGN EXECUTIVE BRIEF ==================== -->
+      <div id="pdf-page-1" class="pdf-page" style="width: 794px; height: 1123px; padding: 38px 44px; box-sizing: border-box; background: #ffffff; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; position: relative;">
+        <div>
+          ${makePageHeader("AI-Powered Campaign & Sentiment Analytics", "المنصة الذكية لتحليلات الحملات والذكاء الاصطناعي", "CERTIFIED AUDIT REPORT", "تقرير فني رسمي معتمد")}
 
-  return {
-    success: true,
-    blobUrl,
-    dataUri,
-    fileName,
-    pdfBlob,
-    containerHtml: "",
-    totalPages,
-  };
+          <!-- Hero Campaign Title Card -->
+          <div style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); border-radius: 16px; padding: 22px 24px; color: #ffffff; margin-bottom: 20px; box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.25); position: relative; overflow: hidden;">
+            <div style="position: absolute; top: -20px; right: ${isArabic ? "-20px" : "auto"}; left: ${isArabic ? "auto" : "-20px"}; width: 140px; height: 140px; border-radius: 50%; background: radial-gradient(circle, rgba(99, 102, 241, 0.25) 0%, transparent 70%); pointer-events: none;"></div>
+
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+              <span style="font-size: 9.5px; font-weight: 800; color: #818cf8; text-transform: uppercase; letter-spacing: 1px; display: inline-flex; align-items: center; gap: 6px;">
+                <span style="width: 6px; height: 6px; border-radius: 50%; background: #06b6d4;"></span>
+                ${L("Official Campaign Intelligence Audit", "التقرير التحليلي الشامل والتقييم الاستراتيجي للحملة")}
+              </span>
+              <span style="font-size: 9px; font-weight: 800; color: #e2e8f0; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15); padding: 3px 10px; border-radius: 9999px;">
+                ${record.mode === "pre" ? L("PRE-LAUNCH AUDIT", "محاكاة ما قبل الإطلاق") : L("POST-LAUNCH REVIEW", "تحليل ما بعد الإطلاق")}
+              </span>
+            </div>
+
+            <h1 style="font-size: 24px; font-weight: 900; color: #ffffff; margin: 0 0 10px 0; line-height: 1.3; letter-spacing: -0.3px;">
+              ${campaignName}
+            </h1>
+
+            <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.12); padding-top: 12px;">
+              <span style="font-size: 9.5px; background: rgba(99, 102, 241, 0.2); border: 1px solid rgba(165, 180, 252, 0.3); color: #c7d2fe; padding: 3px 9px; border-radius: 6px; font-weight: 700;">
+                🏢 ${organizerText}
+              </span>
+              <span style="font-size: 9.5px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(110, 231, 183, 0.3); color: #a7f3d0; padding: 3px 9px; border-radius: 6px; font-weight: 700;">
+                💵 $${parseFloat(record.budget || "1000").toLocaleString()} USD
+              </span>
+              <span style="font-size: 9.5px; background: rgba(6, 182, 212, 0.15); border: 1px solid rgba(103, 232, 249, 0.3); color: #a5f3fc; padding: 3px 9px; border-radius: 6px; font-weight: 700;">
+                🗣️ ${dialectNames[dialectKey] || dialectKey}
+              </span>
+              <span style="font-size: 9.5px; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(252, 211, 77, 0.3); color: #fde68a; padding: 3px 9px; border-radius: 6px; font-weight: 700;">
+                ⏱️ ${durationText}
+              </span>
+            </div>
+          </div>
+
+          <!-- Campaign Parameters Bento Grid -->
+          <div style="background-color: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 14px; padding: 18px 20px; margin-bottom: 18px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; border-bottom: 1.5px solid #e2e8f0; padding-bottom: 8px;">
+              <h3 style="font-size: 13px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 8px;">
+                <span style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 6px; background: #4338ca; color: #ffffff; font-size: 10px;">⚙️</span>
+                <span>${L("1. Campaign Parameters & Audience Target", "١. محددات الحملة الإعلانية والشريحة المستهدفة")}</span>
+              </h3>
+              <span style="font-size: 9.5px; font-weight: 700; color: #64748b;">
+                ${L("Configuration Matrix", "مصفوفة الإعدادات")}
+              </span>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px;">
+              <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px;">
+                <span style="font-size: 9px; font-weight: 800; color: #64748b; display: block; text-transform: uppercase;">
+                  ${L("Organizer", "الجهة المنظمة")}
+                </span>
+                <span style="font-size: 11.5px; font-weight: 800; color: #0f172a; margin-top: 3px; display: block;">
+                  ${organizerText}
+                </span>
+              </div>
+              <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px;">
+                <span style="font-size: 9px; font-weight: 800; color: #64748b; display: block; text-transform: uppercase;">
+                  ${L("Approved Budget", "الميزانية المعتمدة")}
+                </span>
+                <span style="font-size: 11.5px; font-weight: 800; color: #0f172a; margin-top: 3px; display: block; font-family: monospace;">
+                  $${parseFloat(record.budget || "1000").toLocaleString()}
+                </span>
+              </div>
+              <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px;">
+                <span style="font-size: 9px; font-weight: 800; color: #64748b; display: block; text-transform: uppercase;">
+                  ${L("Linguistic Dialect", "اللهجة المستهدفة")}
+                </span>
+                <span style="font-size: 11.5px; font-weight: 800; color: #4338ca; margin-top: 3px; display: block;">
+                  ${dialectNames[dialectKey] || dialectKey}
+                </span>
+              </div>
+              <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px;">
+                <span style="font-size: 9px; font-weight: 800; color: #64748b; display: block; text-transform: uppercase;">
+                  ${L("Duration", "فترة التشغيل")}
+                </span>
+                <span style="font-size: 11.5px; font-weight: 800; color: #0f172a; margin-top: 3px; display: block;">
+                  ${durationText}
+                </span>
+              </div>
+            </div>
+
+            <!-- Demographics line -->
+            <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px;">
+              <span style="font-size: 9px; font-weight: 800; color: #64748b; display: block; text-transform: uppercase; margin-bottom: 6px;">
+                ${L("Audience Criteria & Geographic Scope", "المعايير الديموغرافية والنطاق الجغرافي")}
+              </span>
+              <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                <span style="font-size: 10px; background: #f8fafc; border: 1px solid #cbd5e1; padding: 3px 10px; border-radius: 6px; color: #1e293b; font-weight: 700;">
+                  🎯 ${L("Age: ", "الفئة العمرية: ")} <strong>${audienceAge}</strong>
+                </span>
+                <span style="font-size: 10px; background: #f8fafc; border: 1px solid #cbd5e1; padding: 3px 10px; border-radius: 6px; color: #1e293b; font-weight: 700;">
+                  👥 ${L("Gender: ", "الجنس المستهدف: ")} <strong>${audienceGender}</strong>
+                </span>
+                <span style="font-size: 10px; background: #f8fafc; border: 1px solid #cbd5e1; padding: 3px 10px; border-radius: 6px; color: #1e293b; font-weight: 700;">
+                  📍 ${L("Market: ", "السوق الجغرافي: ")} <strong>${audienceLocation}</strong>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Narrative Description & Primary Message -->
+          <div style="display: grid; grid-template-columns: 1fr; gap: 12px;">
+            <div style="background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 14px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+              <span style="font-size: 9.5px; font-weight: 800; color: #4338ca; display: flex; align-items: center; gap: 6px; text-transform: uppercase; margin-bottom: 6px;">
+                <span>📝</span>
+                <span>${L("Campaign Concept & Narrative Description", "وصف ومفهوم الحملة الإعلانية")}</span>
+              </span>
+              <p style="font-size: 11px; color: #1e293b; margin: 0; line-height: 1.65; text-align: justify; font-weight: 600;">
+                ${record.campaignObj?.description || (isArabic ? "حملة إعلانية مخصصة تهدف إلى تحسين الوعي وتوسيع قاعدة الجمهور المستهدف بمحتوى مبتكر." : "Strategic ad campaign targeting audience expansion and brand affinity with creative execution.")}
+              </p>
+            </div>
+
+            <div style="background: #f8fafc; border: 1.5px solid #e2e8f0; border-left: ${isArabic ? "1.5px solid #e2e8f0" : "4px solid #4338ca"}; border-right: ${isArabic ? "4px solid #4338ca" : "1.5px solid #e2e8f0"}; border-radius: 12px; padding: 14px 18px;">
+              <span style="font-size: 9.5px; font-weight: 800; color: #4338ca; display: flex; align-items: center; gap: 6px; text-transform: uppercase; margin-bottom: 6px;">
+                <span>📢</span>
+                <span>${L("Primary Message & Ad Copy Slogans", "الرسالة الإعلانية الأساسية والشعارات المعتمدة")}</span>
+              </span>
+              <div style="font-size: 12px; font-weight: 800; color: #0f172a; margin-bottom: 4px; line-height: 1.5;">
+                "${record.campaignObj?.message || record.campaignObj?.slogans || (isArabic ? "رسالة تسويقية محددة ومؤثرة." : "Targeted high-resonance marketing message.")}"
+              </div>
+              ${
+                record.campaignObj?.slogans
+                  ? `
+                <div style="font-size: 10.5px; color: #64748b; font-weight: 700; font-style: italic;">
+                  «${record.campaignObj.slogans}»
+                </div>
+              `
+                  : ""
+              }
+            </div>
+          </div>
+        </div>
+
+        <div>
+          ${makePageFooter(1)}
+        </div>
+      </div>
+
+      <!-- ==================== PAGE 2: AI DIAGNOSTICS & STRATEGIC ASSESSMENT ==================== -->
+      <div id="pdf-page-2" class="pdf-page" style="width: 794px; height: 1123px; padding: 38px 44px; box-sizing: border-box; background: #ffffff; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; position: relative;">
+        <div>
+          ${makePageHeader("AI Diagnostics & Strategic Performance", "تشخيصات الذكاء الاصطناعي والأداء الاستراتيجي", "AI DIAGNOSTICS", "تشخيص الذكاء الاصطناعي")}
+
+          <!-- Top Scores Bento (Radial / Metric Style) -->
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-bottom: 18px;">
+            <div style="border: 1.5px solid #c7d2fe; border-radius: 14px; padding: 16px 20px; background: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%); display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 6px rgba(99, 102, 241, 0.08);">
+              <div>
+                <span style="font-size: 9px; font-weight: 800; color: #4338ca; text-transform: uppercase; background: #e0e7ff; padding: 2px 8px; border-radius: 6px;">
+                  ${L("READINESS SCORE", "درجة الجاهزية")}
+                </span>
+                <h4 style="font-size: 13px; font-weight: 900; color: #1e1b4b; margin: 6px 0 2px 0;">
+                  ${L("Campaign Readiness Index", "مؤشر الجاهزية الاستراتيجية")}
+                </h4>
+                <p style="font-size: 9.5px; color: #4338ca; margin: 0; font-weight: 600;">
+                  ${L("Audience cultural & linguistic fit", "المواءمة الثقافية والتوافق اللغوي")}
+                </p>
+              </div>
+              <div style="text-align: right; background: #ffffff; border: 2px solid #a5b4fc; border-radius: 14px; padding: 8px 16px;">
+                <span style="font-size: 32px; font-weight: 900; color: #3730a3; font-family: monospace; line-height: 1;">${overallScore}</span>
+                <span style="font-size: 11px; color: #6366f1; font-weight: 800; display: block;">/ 100</span>
+              </div>
+            </div>
+
+            <div style="border: 1.5px solid #a7f3d0; border-radius: 14px; padding: 16px 20px; background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%); display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.08);">
+              <div>
+                <span style="font-size: 9px; font-weight: 800; color: #047857; text-transform: uppercase; background: #d1fae5; padding: 2px 8px; border-radius: 6px;">
+                  ${L("SUCCESS PROBABILITY", "احتمالية النجاح")}
+                </span>
+                <h4 style="font-size: 13px; font-weight: 900; color: #064e3b; margin: 6px 0 2px 0;">
+                  ${L("Estimated Organic Resonance", "احتمالية النجاح والرنين العام")}
+                </h4>
+                <p style="font-size: 9.5px; color: #059669; margin: 0; font-weight: 600;">
+                  ${L("Predictive algorithm score", "توقع حجم التفاعل المجتمعي والوصول")}
+                </p>
+              </div>
+              <div style="text-align: right; background: #ffffff; border: 2px solid #6ee7b7; border-radius: 14px; padding: 8px 16px;">
+                <span style="font-size: 32px; font-weight: 900; color: #065f46; font-family: monospace; line-height: 1;">${overallScore}%</span>
+                <span style="font-size: 11px; color: #10b981; font-weight: 800; display: block;">CONFIDENCE</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Deep-Dive AI Diagnosis Callout -->
+          <div style="border: 1.5px solid #c7d2fe; background: linear-gradient(180deg, #f8faff 0%, #ffffff 100%); padding: 18px 20px; border-radius: 14px; margin-bottom: 18px; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #e0e7ff; padding-bottom: 6px;">
+              <h3 style="font-size: 13px; font-weight: 800; color: #1e1b4b; margin: 0; display: flex; align-items: center; gap: 8px;">
+                <span style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 6px; background: #4338ca; color: #ffffff; font-size: 10px;">✨</span>
+                <span>${L("AI Campaign Core Diagnostics (Deep-Dive Analysis)", "تشخيصات الذكاء الاصطناعي العميقة لأداء الحملة")}</span>
+              </h3>
+              <span style="font-size: 9px; font-weight: 800; color: #4338ca; background: #e0e7ff; padding: 2px 8px; border-radius: 6px;">
+                GEMINI NEURAL AUDIT
+              </span>
+            </div>
+            <p style="font-size: 11px; color: #1e293b; line-height: 1.7; text-align: justify; margin: 0; font-weight: 600;">
+              ${diagnosisText}
+            </p>
+          </div>
+
+          <!-- Strategic Evaluation & Performance Forecast -->
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-bottom: 16px;">
+            <div style="border: 1.5px solid #e2e8f0; border-radius: 14px; padding: 16px; background: #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+              <h3 style="font-size: 12px; font-weight: 800; color: #0f172a; margin: 0 0 8px 0; padding-bottom: 6px; border-bottom: 1.5px solid #f1f5f9; display: flex; align-items: center; gap: 6px;">
+                <span style="color: #4338ca;">📋</span>
+                <span>${L("Strategic Campaign Evaluation", "التقييم الاستراتيجي الشامل")}</span>
+              </h3>
+              <p style="font-size: 10.5px; color: #334155; line-height: 1.6; text-align: justify; margin: 0; font-weight: 600;">
+                ${evaluationText}
+              </p>
+            </div>
+
+            <div style="border: 1.5px solid #e2e8f0; border-radius: 14px; padding: 16px; background: #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+              <h3 style="font-size: 12px; font-weight: 800; color: #0f172a; margin: 0 0 8px 0; padding-bottom: 6px; border-bottom: 1.5px solid #f1f5f9; display: flex; align-items: center; gap: 6px;">
+                <span style="color: #059669;">📈</span>
+                <span>${record.mode === "pre" ? L("Performance Forecast", "توقع الأداء والانتشار") : L("Multi-Channel Digital Analysis", "تحليل الأداء عبر المنصات")}</span>
+              </h3>
+              <p style="font-size: 10.5px; color: #334155; line-height: 1.6; text-align: justify; margin: 0; font-weight: 600;">
+                ${forecastText}
+              </p>
+            </div>
+          </div>
+
+          <!-- Audience Behavior & Platform Breakdown -->
+          <div style="border: 1.5px solid #e2e8f0; border-radius: 14px; padding: 14px 18px; background: #f8fafc;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <h3 style="font-size: 12px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 6px;">
+                <span style="color: #0284c7;">👥</span>
+                <span>${L("Audience Behavioral Dynamics & Platform Optimization", "ديناميكيات سلوك الجمهور والتحسين عبر المنصات")}</span>
+              </h3>
+            </div>
+            <p style="font-size: 10.5px; color: #334155; line-height: 1.6; text-align: justify; margin: 0; font-weight: 600;">
+              ${
+                record.aiReport?.audienceBehaviorAnalysis &&
+                (isArabic
+                  ? hasArabic(record.aiReport.audienceBehaviorAnalysis)
+                  : !hasArabic(record.aiReport.audienceBehaviorAnalysis))
+                  ? record.aiReport.audienceBehaviorAnalysis
+                  : defaultAudienceAnalysis
+              }
+            </p>
+          </div>
+        </div>
+
+        <div>
+          ${makePageFooter(2)}
+        </div>
+      </div>
+
+      <!-- ==================== PAGE 3: SWOT STRATEGIC RESILIENCE ==================== -->
+      <div id="pdf-page-3" class="pdf-page" style="width: 794px; height: 1123px; padding: 38px 44px; box-sizing: border-box; background: #ffffff; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; position: relative;">
+        <div>
+          ${makePageHeader("SWOT Strategic Resilience & Impact Index", "التحليل الرباعي ومؤشر الجدوى الاستراتيجية", "SWOT & RESILIENCE", "التحليل الرباعي")}
+
+          <!-- SWOT Chart Bar Card -->
+          <div style="background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%); border: 1.5px solid #e2e8f0; border-radius: 14px; padding: 16px 20px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">
+              <h4 style="font-size: 12px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 6px;">
+                <span style="color: #4338ca;">📊</span>
+                <span>${L("SWOT Strategic Impact Index (Audience Resonance)", "مؤشر الأداء والجدوى الاستراتيجية لتحليل SWOT")}</span>
+              </h4>
+              <span style="font-size: 9px; font-weight: 800; color: #64748b;">
+                ${L("Comparative Pillar Weights", "أوزان الركائز الاستراتيجية")}
+              </span>
+            </div>
+            
+            <div style="display: flex; justify-content: space-around; align-items: flex-end; height: 130px; padding: 5px 15px 5px 15px;">
+              <!-- S -->
+              <div style="display: flex; flex-direction: column; align-items: center; width: 110px;">
+                <span style="font-size: 12px; font-weight: 900; color: #059669; margin-bottom: 4px; font-family: monospace;">${sScore}%</span>
+                <div style="width: 44px; height: ${sScore * 0.85}px; background: linear-gradient(180deg, #10b981 0%, #059669 100%); border-radius: 6px 6px 0 0; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);"></div>
+                <div style="margin-top: 6px; text-align: center;">
+                  <span style="font-size: 10px; font-weight: 800; color: #047857; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 2px 8px; border-radius: 4px; display: inline-block;">
+                    ${L("Strengths", "نقاط القوة")}
+                  </span>
+                </div>
+              </div>
+
+              <!-- W -->
+              <div style="display: flex; flex-direction: column; align-items: center; width: 110px;">
+                <span style="font-size: 12px; font-weight: 900; color: #dc2626; margin-bottom: 4px; font-family: monospace;">${wScore}%</span>
+                <div style="width: 44px; height: ${wScore * 0.85}px; background: linear-gradient(180deg, #f43f5e 0%, #dc2626 100%); border-radius: 6px 6px 0 0; box-shadow: 0 2px 4px rgba(239, 68, 68, 0.2);"></div>
+                <div style="margin-top: 6px; text-align: center;">
+                  <span style="font-size: 10px; font-weight: 800; color: #b91c1c; background: #fef2f2; border: 1px solid #fecdd3; padding: 2px 8px; border-radius: 4px; display: inline-block;">
+                    ${L("Weaknesses", "نقاط الضعف")}
+                  </span>
+                </div>
+              </div>
+
+              <!-- O -->
+              <div style="display: flex; flex-direction: column; align-items: center; width: 110px;">
+                <span style="font-size: 12px; font-weight: 900; color: #2563eb; margin-bottom: 4px; font-family: monospace;">${oScore}%</span>
+                <div style="width: 44px; height: ${oScore * 0.85}px; background: linear-gradient(180deg, #3b82f6 0%, #1d4ed8 100%); border-radius: 6px 6px 0 0; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);"></div>
+                <div style="margin-top: 6px; text-align: center;">
+                  <span style="font-size: 10px; font-weight: 800; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 4px; display: inline-block;">
+                    ${L("Opportunities", "الفرص المتاحة")}
+                  </span>
+                </div>
+              </div>
+
+              <!-- T -->
+              <div style="display: flex; flex-direction: column; align-items: center; width: 110px;">
+                <span style="font-size: 12px; font-weight: 900; color: #d97706; margin-bottom: 4px; font-family: monospace;">${tScore}%</span>
+                <div style="width: 44px; height: ${tScore * 0.85}px; background: linear-gradient(180deg, #f59e0b 0%, #d97706 100%); border-radius: 6px 6px 0 0; box-shadow: 0 2px 4px rgba(245, 158, 11, 0.2);"></div>
+                <div style="margin-top: 6px; text-align: center;">
+                  <span style="font-size: 10px; font-weight: 800; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; padding: 2px 8px; border-radius: 4px; display: inline-block;">
+                    ${L("Threats", "المخاطر")}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- SWOT 4 Bento Cards -->
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-bottom: 16px;">
+            <!-- Strengths -->
+            <div style="background: #ffffff; border: 1.5px solid #a7f3d0; border-top: 3.5px solid #059669; border-radius: 12px; padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <h4 style="font-size: 11.5px; font-weight: 900; color: #065f46; margin: 0; display: flex; align-items: center; gap: 6px;">
+                  <span>✅</span>
+                  <span>${L("Strengths (Core Strategic Assets)", "نقاط القوة وركائز النجاح")}</span>
+                </h4>
+                <span style="font-size: 8.5px; font-weight: 800; color: #047857; background: #ecfdf5; padding: 2px 6px; border-radius: 4px;">S</span>
+              </div>
+              <ul style="margin: 0; padding-inline-start: 16px; font-size: 10px; color: #14532d; line-height: 1.6; font-weight: 600;">
+                ${finalStrengths.map((s: string) => `<li>${s}</li>`).join("")}
+              </ul>
+            </div>
+
+            <!-- Weaknesses -->
+            <div style="background: #ffffff; border: 1.5px solid #fecdd3; border-top: 3.5px solid #dc2626; border-radius: 12px; padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <h4 style="font-size: 11.5px; font-weight: 900; color: #991b1b; margin: 0; display: flex; align-items: center; gap: 6px;">
+                  <span>⚠️</span>
+                  <span>${L("Weaknesses & Constraints", "نقاط الضعف والتحديات")}</span>
+                </h4>
+                <span style="font-size: 8.5px; font-weight: 800; color: #b91c1c; background: #fef2f2; padding: 2px 6px; border-radius: 4px;">W</span>
+              </div>
+              <ul style="margin: 0; padding-inline-start: 16px; font-size: 10px; color: #7f1d1d; line-height: 1.6; font-weight: 600;">
+                ${finalWeaknesses.map((w: string) => `<li>${w}</li>`).join("")}
+              </ul>
+            </div>
+
+            <!-- Opportunities -->
+            <div style="background: #ffffff; border: 1.5px solid #bfdbfe; border-top: 3.5px solid #2563eb; border-radius: 12px; padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <h4 style="font-size: 11.5px; font-weight: 900; color: #1e40af; margin: 0; display: flex; align-items: center; gap: 6px;">
+                  <span>🚀</span>
+                  <span>${L("Growth Opportunities", "فرص التوسع والنمو")}</span>
+                </h4>
+                <span style="font-size: 8.5px; font-weight: 800; color: #1d4ed8; background: #eff6ff; padding: 2px 6px; border-radius: 4px;">O</span>
+              </div>
+              <ul style="margin: 0; padding-inline-start: 16px; font-size: 10px; color: #1e3a8a; line-height: 1.6; font-weight: 600;">
+                ${finalOpportunities.map((o: string) => `<li>${o}</li>`).join("")}
+              </ul>
+            </div>
+
+            <!-- Threats -->
+            <div style="background: #ffffff; border: 1.5px solid #fde68a; border-top: 3.5px solid #d97706; border-radius: 12px; padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <h4 style="font-size: 11.5px; font-weight: 900; color: #92400e; margin: 0; display: flex; align-items: center; gap: 6px;">
+                  <span>🛡️</span>
+                  <span>${L("Threats & Mitigation Strategies", "المخاطر وسبل الحماية")}</span>
+                </h4>
+                <span style="font-size: 8.5px; font-weight: 800; color: #b45309; background: #fffbeb; padding: 2px 6px; border-radius: 4px;">T</span>
+              </div>
+              <ul style="margin: 0; padding-inline-start: 16px; font-size: 10px; color: #78350f; line-height: 1.6; font-weight: 600;">
+                ${finalThreats.map((t: string) => `<li>${t}</li>`).join("")}
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          ${makePageFooter(3)}
+        </div>
+      </div>
+
+      <!-- ==================== PAGE 4: REGIONAL WILAYAS, METRICS & RECOMMENDATIONS ==================== -->
+      <div id="pdf-page-4" class="pdf-page" style="width: 794px; height: 1123px; padding: 38px 44px; box-sizing: border-box; background: #ffffff; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; position: relative;">
+        <div>
+          ${makePageHeader("Regional Wilayas & Performance Metrics", "التحليل الإقليمي ومؤشرات الأداء والتوصيات", "REGIONAL & ACTIONS", "التحليل الإقليمي والتوصيات")}
+
+          <!-- Wilayas Table -->
+          <div style="margin-bottom: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1.5px solid #e2e8f0; padding-bottom: 4px;">
+              <h3 style="font-size: 12px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 6px;">
+                <span style="color: #4338ca;">📍</span>
+                <span>${L("Geographical Optimization & Regional Resonance (Algeria)", "التحليل الإقليمي وملاءمة اللهجة عبر ولايات الجزائر")}</span>
+              </h3>
+              <span style="font-size: 8.5px; font-weight: 800; color: #4338ca; background: #e0e7ff; padding: 2px 8px; border-radius: 4px;">
+                6 KEY WILAYAS
+              </span>
+            </div>
+            
+            <div style="border: 1.5px solid #e2e8f0; border-radius: 10px; overflow: hidden; background: #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+              <table style="width: 100%; border-collapse: collapse; text-align: ${isArabic ? "right" : "left"}; font-size: 10px;">
+                <thead>
+                  <tr style="background-color: #0f172a; color: #ffffff;">
+                    <th style="padding: 7px 10px; font-weight: 800;">${L("Wilaya (Province)", "الولاية")}</th>
+                    <th style="padding: 7px 10px; font-weight: 800; text-align: center;">${L("Resonance", "درجة التجاوب")}</th>
+                    <th style="padding: 7px 10px; font-weight: 800; text-align: center;">${L("Status", "الحالة")}</th>
+                    <th style="padding: 7px 10px; font-weight: 800; text-align: center;">${L("Engagement", "معدل التفاعل")}</th>
+                    <th style="padding: 7px 10px; font-weight: 800; text-align: center;">${L("Est. Views", "المشاهدات المقدرة")}</th>
+                    <th style="padding: 7px 10px; font-weight: 800; text-align: center;">${L("Best Platform", "المنصة المثالية")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${wilayaRows
+                    .map(
+                      (row, index) => `
+                    <tr style="border-bottom: 1px solid #f1f5f9; background-color: ${index % 2 === 0 ? "#ffffff" : "#f8fafc"};">
+                      <td style="padding: 6px 10px; font-weight: 800; color: #0f172a;">${row.name}</td>
+                      <td style="padding: 6px 10px; text-align: center; font-weight: 900; color: #4338ca; font-family: monospace;">${row.score}%</td>
+                      <td style="padding: 6px 10px; text-align: center;">
+                        <span style="color: ${row.statusColor}; background: ${row.statusBg}; border: 1px solid ${row.statusBorder}; font-weight: 800; padding: 2px 7px; border-radius: 9999px; font-size: 8.5px;">
+                          ${row.statusLabel}
+                        </span>
+                      </td>
+                      <td style="padding: 6px 10px; text-align: center; font-weight: 800; color: #334155; font-family: monospace;">${row.engagementRate}%</td>
+                      <td style="padding: 6px 10px; text-align: center; font-weight: 700; color: #0f172a; font-family: monospace;">${Intl.NumberFormat().format(row.views)}</td>
+                      <td style="padding: 6px 10px; text-align: center;">
+                        <span style="background: #eef2ff; color: #4338ca; font-weight: 800; padding: 2px 6px; border-radius: 4px; font-size: 9px;">${row.bestPlatform}</span>
+                      </td>
+                    </tr>
+                  `,
+                    )
+                    .join("")}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Sentiment & KPIs Grid -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px;">
+            <!-- Sentiment Listening -->
+            <div style="border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 12px 14px; background: #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+              <span style="font-size: 10px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 5px; margin-bottom: 8px;">
+                <span>🎯</span>
+                <span>${L("Sentiment Listening & Reception", "تحليل النبرة ورصد المشاعر")}</span>
+              </span>
+              <div style="height: 12px; border-radius: 6px; display: flex; overflow: hidden; background: #e2e8f0; margin-bottom: 8px; box-shadow: inset 0 1px 2px rgba(0,0,0,0.06);">
+                <div style="width: ${pSentiment}%; background: linear-gradient(90deg, #10b981, #059669);"></div>
+                <div style="width: ${nSentiment}%; background-color: #94a3b8;"></div>
+                <div style="width: ${ngSentiment}%; background: linear-gradient(90deg, #f43f5e, #dc2626);"></div>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 9px; font-weight: 800;">
+                <span style="color: #059669;">● ${L("Positive", "إيجابي")} ${pSentiment}%</span>
+                <span style="color: #475569;">● ${L("Neutral", "محايد")} ${nSentiment}%</span>
+                <span style="color: #dc2626;">● ${L("Negative", "سلبي")} ${ngSentiment}%</span>
+              </div>
+            </div>
+
+            <!-- Digital KPIs -->
+            <div style="border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 12px 14px; background: #ffffff; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
+              <span style="font-size: 10px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 5px; margin-bottom: 8px;">
+                <span>⚡</span>
+                <span>${L("Estimated Engagement Metrics", "مؤشرات التفاعل الرقمي المتوقعة")}</span>
+              </span>
+              <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;">
+                <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 6px 4px; text-align: center; background: #f8fafc;">
+                  <span style="font-size: 8px; color: #64748b; font-weight: 800; display: block;">${L("VIEWS", "المشاهدات")}</span>
+                  <span style="font-size: 12px; font-weight: 900; color: #0f172a; font-family: monospace; margin-top: 2px; display: block;">${Intl.NumberFormat().format(viewsCount)}</span>
+                </div>
+                <div style="border: 1px solid #fecdd3; border-radius: 8px; padding: 6px 4px; text-align: center; background: #fff1f2;">
+                  <span style="font-size: 8px; color: #e11d48; font-weight: 800; display: block;">${L("LIKES", "الإعجابات")}</span>
+                  <span style="font-size: 12px; font-weight: 900; color: #be123c; font-family: monospace; margin-top: 2px; display: block;">${Intl.NumberFormat().format(likesCount)}</span>
+                </div>
+                <div style="border: 1px solid #bfdbfe; border-radius: 8px; padding: 6px 4px; text-align: center; background: #eff6ff;">
+                  <span style="font-size: 8px; color: #2563eb; font-weight: 800; display: block;">${L("CLICKS", "النقرات")}</span>
+                  <span style="font-size: 12px; font-weight: 900; color: #1d4ed8; font-family: monospace; margin-top: 2px; display: block;">${Intl.NumberFormat().format(clicksCount)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recommendations -->
+          <div style="margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1.5px solid #e2e8f0; padding-bottom: 4px;">
+              <h3 style="font-size: 12px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 6px;">
+                <span>💡</span>
+                <span>${L("Final Priority Actionable Recommendations", "التوصيات الاستراتيجية ذات الأولوية القصوى")}</span>
+              </h3>
+              <span style="font-size: 8.5px; font-weight: 800; color: #059669; background: #ecfdf5; padding: 2px 8px; border-radius: 4px;">
+                HIGH PRIORITY
+              </span>
+            </div>
+            
+            <div style="display: flex; flex-direction: column; gap: 7px;">
+              ${finalRecommendations
+                .map(
+                  (rec, idx) => `
+                <div style="background: #ffffff; border: 1.5px solid #e2e8f0; padding: 8px 12px; border-radius: 8px; display: flex; align-items: flex-start; gap: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
+                  <span style="height: 20px; width: 20px; border-radius: 50%; background: linear-gradient(135deg, #4338ca 0%, #3b82f6 100%); color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 900; flex-shrink: 0; font-family: monospace;">
+                    ${idx + 1}
+                  </span>
+                  <div>
+                    <h5 style="margin: 0 0 2px 0; font-size: 10.5px; font-weight: 800; color: #0f172a;">${rec.title}</h5>
+                    <p style="margin: 0; font-size: 9.5px; color: #475569; line-height: 1.5; font-weight: 600; text-align: justify;">${rec.detail}</p>
+                  </div>
+                </div>
+              `,
+                )
+                .join("")}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <!-- Official Seal & Signature -->
+          <div style="display: flex; justify-content: space-between; align-items: flex-end; padding-top: 8px; border-top: 1px solid #e2e8f0;">
+            <div>
+              <span style="font-size: 8.5px; color: #64748b; font-weight: 700;">${L("Approved & Validated by Autonomous Intelligence Center", "معتمد ومرخص رسمياً من قبل")}</span>
+              <span style="display: block; font-size: 10px; font-weight: 800; color: #0f172a; margin-top: 2px;">
+                Public Insight Autonomous Intelligence Center
+              </span>
+            </div>
+            <div style="border: 2px solid #4338ca; border-radius: 50%; width: 50px; height: 50px; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #4338ca; font-size: 5.5px; font-weight: 900; line-height: 1.1; background: #ffffff; box-shadow: 0 2px 4px rgba(67, 56, 202, 0.1);">
+              <span>PUBLIC</span>
+              <span style="border-top: 1px solid #4338ca; border-bottom: 1px solid #4338ca; padding: 1px 0; margin: 1px 0; font-size: 4.5px;">APPROVED</span>
+              <span>INSIGHT</span>
+            </div>
+          </div>
+          ${makePageFooter(4)}
+        </div>
+      </div>
+
+      ${feedbackHtmlPage}
+
+    </div>
+  `;
+
+  document.body.appendChild(container);
+
+  if (document.fonts && document.fonts.ready) {
+    try {
+      await Promise.race([
+        document.fonts.ready,
+        new Promise((resolve) => setTimeout(resolve, 800)),
+      ]);
+    } catch {
+      // Font loading timeout fallback
+    }
+  }
+  await new Promise((resolve) => setTimeout(resolve, 350));
+
+  const safeName = (record.name || "Campaign")
+    .trim()
+    .replace(/[/?%*:|"<>]/g, "_")
+    .replace(/\s+/g, "_");
+  const fileName = `PublicInsight_${safeName}_Report.pdf`;
+
+  try {
+    const page1 = container.querySelector("#pdf-page-1") as HTMLElement;
+    const page2 = container.querySelector("#pdf-page-2") as HTMLElement;
+    const page3 = container.querySelector("#pdf-page-3") as HTMLElement;
+    const page4 = container.querySelector("#pdf-page-4") as HTMLElement;
+    const page5 = container.querySelector("#pdf-page-5") as HTMLElement;
+    const pages = [page1, page2, page3, page4, page5].filter(Boolean);
+
+    const pdf = new jsPDF("p", "mm", "a4");
+
+    for (let i = 0; i < pages.length; i++) {
+      const pageEl = pages[i];
+      if (!pageEl) continue;
+
+      const canvas = await html2canvas(pageEl, {
+        scale: 2.3, // ~220 DPI crisp print quality
+        useCORS: true,
+        allowTaint: false,
+        backgroundColor: "#ffffff",
+        logging: false,
+        windowWidth: 794,
+        scrollX: 0,
+        scrollY: 0,
+      });
+
+      const imgData = canvas.toDataURL("image/jpeg", 0.98);
+
+      if (i > 0) {
+        pdf.addPage();
+      }
+
+      pdf.addImage(imgData, "JPEG", 0, 0, 210, 297, undefined, "NONE");
+    }
+
+    const pdfBlob = pdf.output("blob");
+    const blobUrl = URL.createObjectURL(pdfBlob);
+
+    // Multi-target download mechanism to guarantee saving on user's PC:
+    try {
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = fileName;
+      link.setAttribute("download", fileName);
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        try {
+          if (document.body.contains(link)) document.body.removeChild(link);
+        } catch {
+          // Cleanup error ignored
+        }
+      }, 5000);
+    } catch (e) {
+      console.warn("Anchor click failed:", e);
+    }
+
+    try {
+      pdf.save(fileName);
+    } catch (e) {
+      console.warn("pdf.save failed:", e);
+    }
+
+    return { success: true, blobUrl, fileName };
+  } catch (error) {
+    console.error("Canvas PDF generation encountered an error:", error);
+    throw error;
+  } finally {
+    if (document.body.contains(container)) {
+      document.body.removeChild(container);
+    }
+  }
 }

@@ -178,32 +178,3 @@
 @utility glow-ring {
   box-shadow: var(--shadow-glow);
 }
-
-/* ============================================================
- * Print-to-PDF Styles for Report Documents
- * ============================================================ */
-@media print {
-  body {
-    background: #ffffff !important;
-    color: #0f172a !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
-
-  .no-print,
-  aside,
-  nav,
-  header,
-  #chatbot-widget,
-  [data-no-print="true"] {
-    display: none !important;
-  }
-
-  .print-page {
-    page-break-after: always;
-    break-after: page;
-    background: #ffffff !important;
-    color: #0f172a !important;
-    padding: 24px !important;
-  }
-}
